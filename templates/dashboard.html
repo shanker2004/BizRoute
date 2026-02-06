@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="dashboard-header">
+        <h1>Welcome to BizRoute</h1>
+        <p>Your AI-driven solution for route optimization, smart scheduling, and emission reduction.</p>
+    </div>
+
+    <div class="section" id="route-planner">
+        <div class="section-title">
+            <h2>Route Planning</h2>
+            <p>Optimize your routes to save time and reduce your carbon footprint.</p>
+        </div>
+        <div class="row g-4">
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-map-marked-alt fa-3x text-primary mb-3"></i>
+                        <h5 class="card-title">Single Route Planner</h5>
+                        <p class="card-text">Plan optimal routes between two locations with real-time traffic data.</p>
+                        <a href="/routes" class="btn btn-primary">Plan Route</a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-route fa-3x text-primary mb-3"></i>
+                        <h5 class="card-title">Multi-Destination Planner</h5>
+                        <p class="card-text">Optimize routes for multiple stops efficiently in one go.</p>
+                        <a href="/calculate-multi-routes" class="btn btn-primary">Plan Multi-Route</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section mt-5">
+        <div class="section-title">
+            <h2>Smart Features</h2>
+            <p>Advanced tools to streamline your logistics operations.</p>
+        </div>
+        <div class="row g-4">
+            <div class="col-md-4">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-calendar-alt fa-3x text-success mb-3"></i>
+                        <h5 class="card-title">Smart Scheduling</h5>
+                        <p class="card-text">AI-powered scheduling based on priority and efficiency.</p>
+                        <a href="/smart_scheduling" class="btn btn-success">Schedule Now</a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-users fa-3x text-info mb-3"></i>
+                        <h5 class="card-title">Client Management</h5>
+                        <p class="card-text">Manage client orders and delivery schedules.</p>
+                        <a href="/client" class="btn btn-info">Manage Clients</a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-truck fa-3x text-warning mb-3"></i>
+                        <h5 class="card-title">Delivery Partner</h5>
+                        <p class="card-text">Coordinate with delivery partners for efficient distribution.</p>
+                        <a href="/deliveryPartner" class="btn btn-warning">Partner Portal</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section mt-5">
+        <div class="section-title">
+            <h2>Environmental Impact</h2>
+            <p>Track and reduce your carbon footprint with every delivery.</p>
+        </div>
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <i class="fas fa-leaf fa-3x text-success mb-3"></i>
+                        <h5 class="card-title">Eco-Friendly Routing</h5>
+                        <p class="card-text">Our platform calculates CO₂ emissions for every route and suggests greener
+                            alternatives to help you make environmentally conscious decisions.</p>
+                        <div class="row mt-4">
+                            <div class="col-md-4">
+                                <h3 class="text-primary">180g</h3>
+                                <p class="text-muted">CO₂ per km (Petrol Car)</p>
+                            </div>
+                            <div class="col-md-4">
+                                <h3 class="text-success">0g</h3>
+                                <p class="text-muted">CO₂ per km (Electric)</p>
+                            </div>
+                            <div class="col-md-4">
+                                <h3 class="text-info">120g</h3>
+                                <p class="text-muted">CO₂ per km (CNG)</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
