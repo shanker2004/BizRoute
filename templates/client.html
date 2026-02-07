@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Client Page</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places,geometry" async
+        defer></script>
+    <style>
+        body {
+            background-color: #f1f5f9;
+            font-family: 'Outfit', sans-serif;
+            color: #0f172a;
+            padding-top: 2rem;
+        }
+
+        h2 {
+            font-weight: 700;
+            font-size: 1.5rem;
+            color: #1e293b;
+            margin-bottom: 1.5rem;
+        }
+
+        .card {
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+            background: #ffffff;
+            padding: 24px;
+            height: 100%;
+        }
+
+        .btn-primary {
+            background-color: #4f46e5;
+            border: none;
+            border-radius: 8px;
+            padding: 12px;
+            font-weight: 600;
+        }
+
+        .btn-secondary {
+            background-color: #1e293b;
+            border: none;
+            border-radius: 8px;
+            padding: 12px;
+            font-weight: 600;
+        }
+
+        #map {
+            height: 400px;
+            width: 100%;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+        }
+
+        .form-control {
+            border-radius: 8px;
+            border: 1px solid #cbd5e1;
+            padding: 10px;
+        }
+
+        label {
+            font-weight: 600;
+            color: #475569;
+            margin-bottom: 0.5rem;
+        }
+    </style>
+</head>
+
+<body>
+    {% include 'navbar.html' %}
+
+    <div class="container mt-5">
+
+
+        <div class="row g-4">
+            <div class="col-lg-4">
+                <div class="card p-4">
+                    <h2>Place Order</h2>
+                    <form id="orderForm" class="needs-validation" novalidate>
+                        <div class="mb-3">
+                            <label for="productId" class="form-label">Product ID</label>
+                            <input type="text" class="form-control" id="productId" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="deliveryDate" class="form-label">Delivery Date</label>
+                            <input type="date" class="form-control" id="deliveryDate" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="deliveryLocation" class="form-label">Delivery Location</label>
+                            <input type="text" class="form-control" id="deliveryLocation" placeholder="Search location"
+                                required>
+                        </div>
+                        <button type="submit" class="btn btn-primary mt-3 w-100">Place Order</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card p-4">
+                    <h2>Map</h2>
+                    <div id="map"></div>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card p-4">
+                    <h2>Reschedule Order</h2>
+                    <form id="rescheduleForm" class="needs-validation" novalidate>
+                        <div class="mb-3">
+                            <label for="orderId" class="form-label">Order ID</label>
+                            <input type="text" class="form-control" id="orderId" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="newDate" class="form-label">New Delivery Date</label>
+                            <input type="date" class="form-control" id="newDate" required>
+                        </div>
+                        <button type="submit" class="btn btn-secondary mt-3 w-100">Reschedule Order</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let map;
+        let marker;
+        let selectedLocation = "";
+
+        function initMap() {
+            navigator.geolocation.getCurrentPosition((position) => {
+                const { latitude, longitude } = position.coords;
+                const userLocation = { lat: latitude, lng: longitude };
+
+                map = new google.maps.Map(document.getElementById("map"), {
+                    center: userLocation,
+                    zoom: 12,
+                });
+
+                const input = document.getElementById("deliveryLocation");
+                const searchBox = new google.maps.places.SearchBox(input);
+                map.controls[google.maps.ControlPosition.TOP_LEFT].push(input);
+
+                searchBox.addListener("places_changed", () => {
+                    const places = searchBox.getPlaces();
+                    if (places.length === 0) return;
+
+                    const place = places[0];
+                    const location = place.geometry.location;
+
+                    if (marker) marker.setMap(null);
+                    marker = new google.maps.Marker({
+                        position: location,
+                        map: map,
+                        title: place.name,
+                        icon: "http://maps.google.com/mapfiles/ms/icons/green-dot.png",
+                    });
+
+                    map.setCenter(location);
+                    selectedLocation = `${location.lat()},${location.lng()}`;
+                });
+
+                map.addListener("click", (e) => {
+                    if (marker) marker.setMap(null);
+                    marker = new google.maps.Marker({
+                        position: e.latLng,
+                        map: map,
+                        title: "Selected Delivery Location",
+                        icon: "http://maps.google.com/mapfiles/ms/icons/green-dot.png",
+                    });
+                    selectedLocation = `${e.latLng.lat()},${e.latLng.lng()}`;
+                });
+            });
+        }
+
+        document.getElementById("orderForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const response = await fetch("/place_order", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    productId: document.getElementById("productId").value,
+                    deliveryDate: document.getElementById("deliveryDate").value,
+                    deliveryLocation: selectedLocation || document.getElementById("deliveryLocation").value,
+                }),
+            });
+            const result = await response.json();
+            alert(result.message);
+        });
+
+        document.getElementById("rescheduleForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            try {
+                const response = await fetch("/reschedule_order", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        orderId: document.getElementById("orderId").value,
+                        newDate: document.getElementById("newDate").value,
+                    }),
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    alert(result.message);
+                } else {
+                    alert(`Error: ${result.message}`);
+                }
+            } catch (error) {
+                alert("An error occurred while rescheduling. Please try again.");
+                console.error(error);
+            }
+        });
+
+        window.onload = initMap;
+    </script>
+</body>
+
+</html>

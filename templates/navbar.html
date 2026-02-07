@@ -1,43 +1,85 @@
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top">
-    <div class="container-fluid">
-        <a class="navbar-brand fw-bold" href="/">
-            <i class="fas fa-route me-2"></i>BizRoute
-        </a>
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-            <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="navbarNav">
-            <ul class="navbar-nav ms-auto">
-                <li class="nav-item">
-                    <a class="nav-link" href="/">
-                        <i class="fas fa-home me-1"></i>Dashboard
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="/routes">
-                        <i class="fas fa-map-marked-alt me-1"></i>Route Planner
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="/calculate-multi-routes">
-                        <i class="fas fa-route me-1"></i>Multi-Route
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="/smart_scheduling">
-                        <i class="fas fa-calendar-alt me-1"></i>Smart Schedule
-                    </a>
-                </li>
-                <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
-                        <i class="fas fa-truck me-1"></i>Delivery
-                    </a>
-                    <ul class="dropdown-menu">
-                        <li><a class="dropdown-item" href="/client">Client Portal</a></li>
-                        <li><a class="dropdown-item" href="/deliveryPartner">Delivery Partner</a></li>
-                    </ul>
-                </li>
-            </ul>
-        </div>
+<style>
+  .navbar {
+    background-color: #0f172a !important;
+    /* Solid Slate 900 */
+    border-bottom: 2px solid #1e293b;
+    padding: 1rem 0;
+  }
+
+  .navbar-brand {
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    font-family: 'Outfit', sans-serif;
+  }
+
+  .navbar-brand img {
+    height: 32px;
+    margin-right: 12px;
+    border-radius: 4px;
+  }
+
+  .nav-link {
+    font-weight: 500;
+    color: #94a3b8 !important;
+    font-family: 'Outfit', sans-serif;
+    padding: 0.5rem 1rem !important;
+    transition: all 0.2s ease;
+  }
+
+  .nav-link:hover {
+    color: #ffffff !important;
+  }
+
+  .nav-link.active {
+    color: #ffffff !important;
+  }
+
+  @media (max-width: 991.98px) {
+    .navbar-collapse {
+      background-color: #0f172a;
+      padding: 1rem;
+      border-radius: 8px;
+      margin-top: 1rem;
+      border: 1px solid #1e293b;
+    }
+  }
+</style>
+
+<nav class="navbar navbar-expand-lg navbar-dark fixed-top">
+  <div class="container">
+    <a class="navbar-brand d-flex align-items-center" href="/">
+      <img
+        src="https://img.freepik.com/premium-photo/trust-point-symbol-3d-flat-icon-with-copy-space-project-planning-concept_980716-277722.jpg?w=740"
+        alt="BizRoute Logo">
+      <span>BizRoute</span>
+    </a>
+
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
+      aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <div class="collapse navbar-collapse" id="navbarNav">
+      <ul class="navbar-nav ms-auto">
+        <li class="nav-item">
+          <a class="nav-link" href="/routes">Routes</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="/calculate-multi-routes">Multi-Route</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="/client">Client</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="/deliveryPartner">Partner</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="/smart_scheduling">Scheduling</a>
+        </li>
+      </ul>
     </div>
+  </div>
 </nav>
+
+<!-- Spacer to prevent content from hiding under the fixed navbar -->
+<div style="height: 80px;"></div>

@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Destination Planner</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        body {
+            background-color: #f1f5f9;
+            font-family: 'Outfit', sans-serif;
+            color: #0f172a;
+        }
+
+        .container {
+            max-width: 1200px;
+        }
+
+        #map {
+            height: 500px;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+            margin-bottom: 24px;
+        }
+
+        .info-card {
+            padding: 24px;
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+        }
+
+        .info-card h5 {
+            font-weight: 700;
+            color: #1e293b;
+            margin-bottom: 20px;
+        }
+
+        .btn-custom {
+            background-color: #4f46e5;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 12px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+
+        .btn-custom:hover {
+            background-color: #4338ca;
+            transform: translateY(-1px);
+        }
+
+        .form-control,
+        .form-select {
+            border-radius: 8px;
+            border: 1px solid #cbd5e1;
+            padding: 10px;
+        }
+
+        label {
+            font-weight: 600;
+            color: #334155;
+            margin-bottom: 0.5rem;
+        }
+
+        .table {
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+        }
+
+        .table thead {
+            background-color: #f8fafc;
+        }
+    </style>
+</head>
+
+<body>
+    {% include 'navbar.html' %}
+    <div class="container my-5">
+
+        <h1 class="text-center mb-4">Smart Destination Planner</h1>
+
+        <div class="row">
+            <div class="col-lg-4 mb-3">
+                <div class="info-card">
+                    <form id="route-form">
+                        <div class="mb-3">
+                            <label for="start-location" class="form-label">Start Location:</label>
+                            <input type="text" id="start-location" class="form-control"
+                                placeholder="Enter start location" required>
+                            <button id="geolocate" type="button" class="btn btn-sm btn-link mt-2">Use My
+                                Location</button>
+                        </div>
+                        <div class="mb-3">
+                            <label for="destinations" class="form-label">Final Destination:</label>
+                            <input type="text" id="final-destination" class="form-control"
+                                placeholder="Enter final destination" required>
+                            <small id="destinationHelp" class="form-text text-muted">
+                                Mention the final destination for the optimal route.
+                            </small>
+                        </div>
+                        <div class="mb-3">
+                            <label for="destinations" class="form-label">Intermediate Destinations:</label>
+                            <textarea id="destinations" class="form-control" rows="4"
+                                placeholder="Enter destinations, one per line (Optional)"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="travel-mode" class="form-label">Travel Mode:</label>
+                            <select id="travel-mode" class="form-select">
+                                <option value="DRIVING">Driving</option>
+                                <option value="WALKING">Walking</option>
+                                <option value="BICYCLING">Bicycling</option>
+                                <option value="TRANSIT">Transit</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-custom w-100">Plan My Route</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="col-lg-8">
+                <div id="map"></div>
+                <div class="form-check form-switch mt-2">
+                    <input class="form-check-input" type="checkbox" id="toggle-traffic">
+                    <label class="form-check-label" for="toggle-traffic">Show Traffic</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="info-card mt-4">
+            <h5>Route Summary</h5>
+            <div id="route-results">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Location</th>
+                            <th>Estimated Arrival</th>
+                            <th>Distance (km)</th>
+                            <th>Duration (mins)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="route-details"></tbody>
+                </table>
+            </div>
+            <p id="weather" class="text-muted">Weather information will appear here.</p>
+        </div>
+    </div>
+
+    <script>
+        let map, directionsRenderer, directionsService, trafficLayer, geocoder;
+        let trafficLayerVisible = false;
+
+        function initMap() {
+            map = new google.maps.Map(document.getElementById("map"), {
+                zoom: 7,
+                center: { lat: 20.5937, lng: 78.9629 },
+            });
+
+            directionsRenderer = new google.maps.DirectionsRenderer({ map: map });
+            directionsService = new google.maps.DirectionsService();
+            geocoder = new google.maps.Geocoder();
+            trafficLayer = new google.maps.TrafficLayer();
+
+            document.getElementById("toggle-traffic").addEventListener("change", (event) => {
+                trafficLayerVisible = event.target.checked;
+                if (trafficLayerVisible) {
+                    trafficLayer.setMap(map);
+                    event.target.nextElementSibling.innerText = "Hide Traffic";
+                } else {
+                    trafficLayer.setMap(null);
+                    event.target.nextElementSibling.innerText = "Show Traffic";
+                }
+            });
+        }
+
+        function calculateRoute(start, finalDestination, intermediateDestinations, travelMode) {
+            const waypoints = intermediateDestinations.map(loc => ({ location: loc, stopover: true }));
+
+            const request = {
+                origin: start,
+                destination: finalDestination,
+                waypoints: waypoints,
+                travelMode: travelMode,
+            };
+
+            directionsService.route(request, (result, status) => {
+                if (status === google.maps.DirectionsStatus.OK) {
+                    directionsRenderer.setDirections(result);
+                    const route = result.routes[0];
+
+                    let detailsTable = document.getElementById("route-details");
+                    detailsTable.innerHTML = "";
+
+                    route.legs.forEach((leg, i) => {
+                        let duration = leg.duration_in_traffic ? leg.duration_in_traffic.text : leg.duration.text;
+                        let distance = leg.distance.text;
+                        let arrival = new Date(Date.now() + (leg.duration.value * 1000)).toLocaleTimeString();
+
+                        const row = `
+                            <tr>
+                                <td>${i + 1}</td>
+                                <td>${leg.start_address}</td>
+                                <td>${arrival}</td>
+                                <td>${distance}</td>
+                                <td>${duration}</td>
+                            </tr>`;
+                        detailsTable.insertAdjacentHTML("beforeend", row);
+                    });
+                } else {
+                    alert("Error fetching route: " + status);
+                }
+            });
+        }
+
+        async function fetchWeather(lat, lng) {
+            const apiKey = "YOUR_OPENWEATHER_API_KEY";
+            const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lng}&appid=${apiKey}&units=metric`;
+            const response = await fetch(url);
+            const data = await response.json();
+            const weather = `${data.weather[0].description}, Temp: ${data.main.temp}°C`;
+            document.getElementById("weather").innerText = "Weather at start location: " + weather;
+        }
+
+        document.getElementById("geolocate").addEventListener("click", () => {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const { latitude, longitude } = position.coords;
+                    fetchWeather(latitude, longitude);
+
+                    geocoder.geocode({ location: { lat: latitude, lng: longitude } }, (results, status) => {
+                        if (status === "OK" && results[0]) {
+                            document.getElementById("start-location").value = results[0].formatted_address;
+                        }
+                    });
+                },
+                () => alert("Geolocation failed!"),
+                { enableHighAccuracy: true }
+            );
+        });
+
+        $(document).ready(() => {
+            initMap();
+
+            $("#route-form").on("submit", function (event) {
+                event.preventDefault();
+                const start = $("#start-location").val();
+                const finalDestination = $("#final-destination").val();
+                const intermediateDestinations = $("#destinations").val().split("\n").filter(Boolean);
+                const travelMode = $("#travel-mode").val();
+
+                if (start && finalDestination) {
+                    calculateRoute(start, finalDestination, intermediateDestinations, travelMode);
+                } else {
+                    alert("Please enter a valid start and final destination.");
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>
