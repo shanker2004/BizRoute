@@ -373,7 +373,16 @@ def dp():
     
 @app.route('/client')
 def client():
-    return render_template('client.html', title="Real-Time Delivery Rescheduling System", google_maps_api_key=GOOGLE_MAPS_API_KEY)
+    return render_template('client.html', title="Client Management", google_maps_api_key=GOOGLE_MAPS_API_KEY)
+
+@app.route('/eco-balance')
+def eco_balance():
+    # Placeholder for eco-balance, using dashboard or common base
+    return render_template('dashboard.html', title="Eco Insights")
+
+@app.route('/package-load')
+def package_load():
+    return render_template('package_load.html', title="Package Loading")
 
 
 @app.route('/place_order', methods=['POST'])
