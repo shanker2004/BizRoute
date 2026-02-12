@@ -434,12 +434,17 @@ def reschedule_order():
     except Exception as e:
         return jsonify({'message': f'An unexpected error occurred: {str(e)}'}), 500
 
+@app.route('/get_orders', methods=['GET'])
+def get_orders():
+    """Return all orders from mock storage."""
+    try:
+        return jsonify(load_orders())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # Endpoint to get delivery partner routes
 @app.route('/delivery-partner', methods=['GET'])
 def delivery_partner():
-    if not gmaps:
-        return jsonify({'error': 'Google Maps client not available. Please check API key configuration.'}), 503
-    
     try:
         today = date.today().isoformat()
         orders = load_orders()
@@ -448,14 +453,45 @@ def delivery_partner():
         todays_orders = [o for o in orders if o['deliveryDate'] == today]
         
         if not todays_orders:
-            return jsonify({'message': 'No orders found for today (Mock Storage)'}), 404
+            # If no orders for today, return a subset for preview/testing
+            todays_orders = orders[:5]
+            if not todays_orders:
+                return jsonify({'message': 'No orders found (Mock Storage)'}), 404
         
         delivery_locations = [order['deliveryLocation'] for order in todays_orders]
+        current_location = request.args.get('currentLocation', '13.0827,80.2707')
         
-        # Fetch start point (current location) from the frontend
-        current_location = request.args.get('currentLocation', '13.0827,80.2707')  # Default to Chennai if not provided
-        
-        # Calculate the best route using Google Maps API
+        # If gmaps is missing, return data without a polyline/optimized route
+        if not gmaps:
+            print("⚠ Google Maps not available - returning basic order data")
+            mock_route_details = {
+                'overall_distance': "N/A",
+                'overall_time': "N/A",
+                'overall_carbon_emission': "N/A",
+                'polyline': "", # Empty polyline
+                'markers': []
+            }
+            
+            detailed_points = []
+            for order in todays_orders:
+                loc = order['deliveryLocation'].split(',')
+                if len(loc) == 2:
+                    mock_route_details['markers'].append({'lat': float(loc[0]), 'lng': float(loc[1])})
+                
+                detailed_points.append({
+                    'productId': order['productId'],
+                    'estimated_time_reach': 'N/A (No API Key)',
+                    'distance_from_origin': 'N/A (No API Key)',
+                    'location': order['deliveryLocation']
+                })
+            
+            return jsonify({
+                'route_details': mock_route_details, 
+                'detailed_points': detailed_points,
+                'notice': 'Using mock data because Google Maps API key is missing or invalid.'
+            })
+
+        # --- NORMAL GOOGLE MAPS LOGIC ---
         waypoints = delivery_locations
         directions_result = gmaps.directions(
             origin=current_location,

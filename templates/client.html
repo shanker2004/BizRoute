@@ -9,8 +9,23 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places,geometry" async
-        defer></script>
+    <!-- Leaflet Fallback -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Modern async loading for Google Maps
+        (function () {
+            const script = document.createElement('script');
+            script.src = "https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places,geometry&callback=initMap";
+            script.async = true;
+            script.defer = true;
+            script.onerror = () => {
+                console.warn("Google Maps failed to load. Falling back to Leaflet.");
+                initLeafletFallback();
+            };
+            document.head.appendChild(script);
+        })();
+    </script>
     <style>
         body {
             background-color: #f1f5f9;
@@ -69,6 +84,17 @@
             color: #475569;
             margin-bottom: 0.5rem;
         }
+
+        .order-list-container {
+            margin-top: 30px;
+        }
+
+        .table {
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+        }
     </style>
 </head>
 
@@ -76,8 +102,6 @@
     {% include 'navbar.html' %}
 
     <div class="container mt-5">
-
-
         <div class="row g-4">
             <div class="col-lg-4">
                 <div class="card p-4">
@@ -125,14 +149,40 @@
                 </div>
             </div>
         </div>
+
+        <div class="order-list-container">
+            <div class="card">
+                <h2>Existing Orders (Mock Storage)</h2>
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Product ID</th>
+                                <th>Delivery Date</th>
+                                <th>Location</th>
+                                <th>Created At</th>
+                            </tr>
+                        </thead>
+                        <tbody id="orderListBody">
+                            <tr>
+                                <td colspan="4" class="text-center">Loading orders...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
         let map;
+        let leafletMap;
         let marker;
         let selectedLocation = "";
+        let isGoogleMapsLoaded = false;
 
         function initMap() {
+            isGoogleMapsLoaded = true;
             navigator.geolocation.getCurrentPosition((position) => {
                 const { latitude, longitude } = position.coords;
                 const userLocation = { lat: latitude, lng: longitude };
@@ -144,7 +194,6 @@
 
                 const input = document.getElementById("deliveryLocation");
                 const searchBox = new google.maps.places.SearchBox(input);
-                map.controls[google.maps.ControlPosition.TOP_LEFT].push(input);
 
                 searchBox.addListener("places_changed", () => {
                     const places = searchBox.getPlaces();
@@ -175,7 +224,63 @@
                     });
                     selectedLocation = `${e.latLng.lat()},${e.latLng.lng()}`;
                 });
+            }, () => {
+                // Geo fallback
+                map = new google.maps.Map(document.getElementById("map"), {
+                    center: { lat: 13.0827, lng: 80.2707 },
+                    zoom: 12,
+                });
             });
+        }
+
+        function initLeafletFallback() {
+            if (leafletMap) return;
+            const mapDiv = document.getElementById("map");
+            mapDiv.innerHTML = "";
+            leafletMap = L.map(mapDiv).setView([13.0827, 80.2707], 12);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(leafletMap);
+
+            leafletMap.on('click', (e) => {
+                const { lat, lng } = e.latlng;
+                if (marker) leafletMap.removeLayer(marker);
+                marker = L.marker([lat, lng]).addTo(leafletMap);
+                selectedLocation = `${lat},${lng}`;
+            });
+
+            const alertDiv = document.createElement("div");
+            alertDiv.className = "alert alert-warning mt-2";
+            alertDiv.innerHTML = "<strong>Notice:</strong> Using OpenStreetMap fallback for map selection.";
+            mapDiv.parentNode.insertBefore(alertDiv, mapDiv.nextSibling);
+        }
+
+        async function fetchOrders() {
+            try {
+                const response = await fetch("/get_orders");
+                const orders = await response.json();
+                const tbody = document.getElementById("orderListBody");
+                tbody.innerHTML = "";
+
+                if (orders.length === 0) {
+                    tbody.innerHTML = "<tr><td colspan='4' class='text-center'>No orders found.</td></tr>";
+                    return;
+                }
+
+                orders.forEach(order => {
+                    const row = document.createElement("tr");
+                    row.innerHTML = `
+                        <td>${order.productId}</td>
+                        <td>${order.deliveryDate}</td>
+                        <td>${order.deliveryLocation}</td>
+                        <td><small>${order.created_at}</small></td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } catch (e) {
+                console.error("Failed to fetch orders:", e);
+                document.getElementById("orderListBody").innerHTML = "<tr><td colspan='4' class='text-center text-danger'>Error loading orders.</td></tr>";
+            }
         }
 
         document.getElementById("orderForm").addEventListener("submit", async (e) => {
@@ -191,6 +296,7 @@
             });
             const result = await response.json();
             alert(result.message);
+            fetchOrders();
         });
 
         document.getElementById("rescheduleForm").addEventListener("submit", async (e) => {
@@ -208,17 +314,25 @@
                 const result = await response.json();
                 if (response.ok) {
                     alert(result.message);
+                    fetchOrders();
                 } else {
                     alert(`Error: ${result.message}`);
                 }
             } catch (error) {
                 alert("An error occurred while rescheduling. Please try again.");
-                console.error(error);
             }
         });
 
-        window.onload = initMap;
+        window.onload = () => {
+            fetchOrders();
+            setTimeout(() => {
+                if (!isGoogleMapsLoaded) initLeafletFallback();
+            }, 3000);
+        };
     </script>
+</body>
+
+</html>
 </body>
 
 </html>
