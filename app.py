@@ -5,25 +5,57 @@ from dotenv import load_dotenv
 import os
 import datetime
 from datetime import date
-import mysql.connector
-import googlemaps
+
+# Try to import MySQL, but make it optional
+try:
+    import mysql.connector
+    MYSQL_AVAILABLE = True
+except ImportError:
+    MYSQL_AVAILABLE = False
+    print("MySQL connector not available - database features will be disabled")
+
+try:
+    import googlemaps
+    GOOGLEMAPS_AVAILABLE = True
+except ImportError:
+    GOOGLEMAPS_AVAILABLE = False
+    print("googlemaps library not available - some features may be limited")
 
 app = Flask(__name__)
 load_dotenv()
 
+# Try to connect to database, but don't fail if it's not available
 db_config = {
     'host': 'localhost',
     'user': 'fedex',
     'password': 'BizRoute',
     'database': 'BizRoute'
 }
-conn = mysql.connector.connect(**db_config)
-cursor = conn.cursor(dictionary=True)
+
+conn = None
+cursor = None
+gmaps = None
+
+if MYSQL_AVAILABLE:
+    try:
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor(dictionary=True)
+        print("✓ Database connected successfully")
+    except mysql.connector.Error as err:
+        print(f"⚠ Database connection failed: {err}")
+        print("  App will run without database features")
+        conn = None
+        cursor = None
 
 GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY')
 TOMTOM_API_KEY = os.getenv('TOMTOM_API_KEY')
 AQICN_API_KEY = os.getenv('AQICN_API_KEY')
-gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
+
+if GOOGLEMAPS_AVAILABLE and GOOGLE_MAPS_API_KEY:
+    try:
+        gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
+    except Exception as e:
+        print(f"⚠ Google Maps client initialization failed: {e}")
 
 EMISSION_FACTOR = 0.12  
 
@@ -301,21 +333,30 @@ def client():
 
 @app.route('/place_order', methods=['POST'])
 def place_order():
-    data = request.json
-    productId = data['productId']
-    deliveryDate = data['deliveryDate']
-    deliveryLocation = data['deliveryLocation']
+    if not conn or not cursor:
+        return jsonify({"error": "Database not available. Please configure MySQL to use this feature."}), 503
+    
+    try:
+        data = request.json
+        productId = data['productId']
+        deliveryDate = data['deliveryDate']
+        deliveryLocation = data['deliveryLocation']
 
-    cursor.execute(
-        "INSERT INTO ClientOrders (productId, deliveryDate, deliveryLocation) VALUES (%s, %s, %s)",
-        (productId, deliveryDate, deliveryLocation)
-    )
-    conn.commit()
-    return jsonify({"message": "Order placed successfully!"})
+        cursor.execute(
+            "INSERT INTO ClientOrders (productId, deliveryDate, deliveryLocation) VALUES (%s, %s, %s)",
+            (productId, deliveryDate, deliveryLocation)
+        )
+        conn.commit()
+        return jsonify({"message": "Order placed successfully!"})
+    except Exception as e:
+        return jsonify({"error": f"Failed to place order: {str(e)}"}), 500
 
 # Endpoint to reschedule an order
 @app.route('/reschedule_order', methods=['POST'])
 def reschedule_order():
+    if not MYSQL_AVAILABLE:
+        return jsonify({'error': 'Database not available. Please configure MySQL to use this feature.'}), 503
+    
     data = request.get_json()
     order_id = data.get('orderId')
     new_date = data.get('newDate')
@@ -356,60 +397,69 @@ def reschedule_order():
 # Endpoint to get delivery partner routes
 @app.route('/delivery-partner', methods=['GET'])
 def delivery_partner():
-    today = date.today().isoformat()
+    if not MYSQL_AVAILABLE or not conn:
+        return jsonify({'error': 'Database not available. Please configure MySQL to use this feature.'}), 503
     
-    # Connect to the database
-    conn = mysql.connector.connect(**db_config)
-    cursor = conn.cursor(dictionary=True)
+    if not gmaps:
+        return jsonify({'error': 'Google Maps client not available. Please check API key configuration.'}), 503
     
-    # Fetch all orders for today's date
-    query = "SELECT * FROM clientorders WHERE deliveryDate = %s"
-    cursor.execute(query, (today,))
-    orders = cursor.fetchall()
-    conn.close()
-    
-    if not orders:
-        return jsonify({'message': 'No orders found for today'}), 404
-    
-    delivery_locations = [order['deliveryLocation'] for order in orders]
-    
-    # Fetch start point (current location) from the frontend
-    current_location = request.args.get('currentLocation', '13.0827,80.2707')  # Default to Chennai if not provided
-    current_lat, current_lng = map(float, current_location.split(','))
-    
-    # Calculate the best route using Google Maps API
-    waypoints = delivery_locations
-    directions_result = gmaps.directions(
-        origin=current_location,
-        destination=waypoints[-1],
-        waypoints=waypoints[:-1],
-        optimize_waypoints=True
-    )
-    
-    # Parse the directions result
-    route = directions_result[0]
-    overview_polyline = route['overview_polyline']['points']
-    legs = route['legs']
-    
-    route_details = {
-        'overall_distance': sum(leg['distance']['value'] for leg in legs) / 1000,  # in kilometers
-        'overall_time': sum(leg['duration']['value'] for leg in legs) / 60,  # in minutes
-        'overall_carbon_emission': round(0.120 * (sum(leg['distance']['value'] for leg in legs) / 1000), 2),  # Approximation
-        'polyline': overview_polyline,
-        'markers': [{'lat': leg['start_location']['lat'], 'lng': leg['start_location']['lng']} for leg in legs]
-    }
-    
-    detailed_points = []
-    for i, order in enumerate(orders):
-        leg = legs[i]
-        detailed_points.append({
-            'productId': order['productId'],
-            'estimated_time_reach': leg['duration']['text'],
-            'distance_from_origin': leg['distance']['text'],
-            'location': order['deliveryLocation']
-        })
-    
-    return jsonify({'route_details': route_details, 'detailed_points': detailed_points})
+    try:
+        today = date.today().isoformat()
+        
+        # Connect to the database
+        temp_conn = mysql.connector.connect(**db_config)
+        temp_cursor = temp_conn.cursor(dictionary=True)
+        
+        # Fetch all orders for today's date
+        query = "SELECT * FROM clientorders WHERE deliveryDate = %s"
+        temp_cursor.execute(query, (today,))
+        orders = temp_cursor.fetchall()
+        temp_conn.close()
+        
+        if not orders:
+            return jsonify({'message': 'No orders found for today'}), 404
+        
+        delivery_locations = [order['deliveryLocation'] for order in orders]
+        
+        # Fetch start point (current location) from the frontend
+        current_location = request.args.get('currentLocation', '13.0827,80.2707')  # Default to Chennai if not provided
+        current_lat, current_lng = map(float, current_location.split(','))
+        
+        # Calculate the best route using Google Maps API
+        waypoints = delivery_locations
+        directions_result = gmaps.directions(
+            origin=current_location,
+            destination=waypoints[-1],
+            waypoints=waypoints[:-1],
+            optimize_waypoints=True
+        )
+        
+        # Parse the directions result
+        route = directions_result[0]
+        overview_polyline = route['overview_polyline']['points']
+        legs = route['legs']
+        
+        route_details = {
+            'overall_distance': sum(leg['distance']['value'] for leg in legs) / 1000,  # in kilometers
+            'overall_time': sum(leg['duration']['value'] for leg in legs) / 60,  # in minutes
+            'overall_carbon_emission': round(0.120 * (sum(leg['distance']['value'] for leg in legs) / 1000), 2),  # Approximation
+            'polyline': overview_polyline,
+            'markers': [{'lat': leg['start_location']['lat'], 'lng': leg['start_location']['lng']} for leg in legs]
+        }
+        
+        detailed_points = []
+        for i, order in enumerate(orders):
+            leg = legs[i]
+            detailed_points.append({
+                'productId': order['productId'],
+                'estimated_time_reach': leg['duration']['text'],
+                'distance_from_origin': leg['distance']['text'],
+                'location': order['deliveryLocation']
+            })
+        
+        return jsonify({'route_details': route_details, 'detailed_points': detailed_points})
+    except Exception as e:
+        return jsonify({'error': f'Failed to get delivery routes: {str(e)}'}), 500
 
 
 if __name__ == '__main__':
