@@ -167,11 +167,25 @@
 
         const fetchDataAndDisplayRoute = async () => {
             try {
-                const currentLocation = await new Promise((resolve, reject) => {
+                console.log("Fetching delivery route data...");
+                const currentLocation = await new Promise((resolve) => {
                     if (navigator.geolocation) {
+                        const geoTimeout = setTimeout(() => {
+                            console.warn("Geolocation timed out. Using fallback.");
+                            resolve("13.0827,80.2707");
+                        }, 3000);
+
                         navigator.geolocation.getCurrentPosition(
-                            (position) => resolve(`${position.coords.latitude},${position.coords.longitude}`),
-                            (error) => resolve("13.0827,80.2707") // Fallback to Chennai on error
+                            (position) => {
+                                clearTimeout(geoTimeout);
+                                resolve(`${position.coords.latitude},${position.coords.longitude}`);
+                            },
+                            (error) => {
+                                clearTimeout(geoTimeout);
+                                console.warn("Geolocation error:", error.message);
+                                resolve("13.0827,80.2707");
+                            },
+                            { timeout: 3000 }
                         );
                     } else {
                         resolve("13.0827,80.2707");
@@ -181,19 +195,25 @@
                 const response = await fetch(`/delivery-partner?currentLocation=${currentLocation}`);
                 const data = await response.json();
 
-                if (!data.route_details) {
-                    alert("No routes available for today.");
+                if (!data || (!data.route_details && !data.detailed_points)) {
+                    document.getElementById("map").innerHTML = `<div class="alert alert-info">No deliveries found for today. Please check back later.</div>`;
                     return;
                 }
 
-                if (isGoogleMapsLoaded) {
+                // Always display details if we have points
+                if (data.detailed_points) {
+                    displayDetails(data);
+                }
+
+                if (isGoogleMapsLoaded && data.route_details && data.route_details.polyline) {
                     try {
+                        const center = (data.route_details.markers && data.route_details.markers.length > 0)
+                            ? { lat: data.route_details.markers[0].lat, lng: data.route_details.markers[0].lng }
+                            : { lat: 13.0827, lng: 80.2707 };
+
                         map = new google.maps.Map(document.getElementById("map"), {
                             zoom: 12,
-                            center: {
-                                lat: data.route_details.markers[0].lat,
-                                lng: data.route_details.markers[0].lng,
-                            },
+                            center: center,
                         });
 
                         const routePath = new google.maps.Polyline({
@@ -211,21 +231,22 @@
                             intermediate: { url: "https://maps.google.com/mapfiles/ms/icons/blue-dot.png", scaledSize: new google.maps.Size(40, 40) },
                         };
 
-                        data.route_details.markers.forEach((marker, index) => {
-                            new google.maps.Marker({
-                                position: { lat: marker.lat, lng: marker.lng },
-                                map,
-                                icon: index === 0 ? icons.start :
-                                    index === data.route_details.markers.length - 1 ? icons.end : icons.intermediate,
-                                label: {
-                                    text: index === 0 ? "S" : index === data.route_details.markers.length - 1 ? "E" : `${index}`,
-                                    color: "white",
-                                    fontSize: "14px",
-                                    fontWeight: "bold",
-                                },
+                        if (data.route_details.markers) {
+                            data.route_details.markers.forEach((marker, index) => {
+                                new google.maps.Marker({
+                                    position: { lat: marker.lat, lng: marker.lng },
+                                    map,
+                                    icon: index === 0 ? icons.start :
+                                        index === data.route_details.markers.length - 1 ? icons.end : icons.intermediate,
+                                    label: {
+                                        text: index === 0 ? "S" : index === data.route_details.markers.length - 1 ? "E" : `${index}`,
+                                        color: "white",
+                                        fontSize: "14px",
+                                        fontWeight: "bold",
+                                    },
+                                });
                             });
-                        });
-                        displayDetails(data);
+                        }
                     } catch (e) {
                         console.error("Google Maps display failed:", e);
                         initLeafletFallback(data);
@@ -235,8 +256,8 @@
                 }
 
             } catch (error) {
-                console.error("Error:", error);
-                alert("Unable to fetch route data.");
+                console.error("Error in fetchDataAndDisplayRoute:", error);
+                document.getElementById("map").innerHTML = `<div class="alert alert-danger">An error occurred while loading delivery data.</div>`;
                 initLeafletFallback();
             }
         };
