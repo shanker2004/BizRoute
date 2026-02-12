@@ -16,7 +16,7 @@
         // Modern async loading for Google Maps
         (function () {
             const script = document.createElement('script');
-            script.src = "https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places,geometry&callback=initMap";
+            script.src = "https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places,geometry&callback=initMap&loading=async";
             script.async = true;
             script.defer = true;
             script.onerror = () => {
@@ -193,13 +193,12 @@
                 });
 
                 const input = document.getElementById("deliveryLocation");
-                const searchBox = new google.maps.places.SearchBox(input);
+                const autocomplete = new google.maps.places.Autocomplete(input);
 
-                searchBox.addListener("places_changed", () => {
-                    const places = searchBox.getPlaces();
-                    if (places.length === 0) return;
+                autocomplete.addListener("place_changed", () => {
+                    const place = autocomplete.getPlace();
+                    if (!place.geometry || !place.geometry.location) return;
 
-                    const place = places[0];
                     const location = place.geometry.location;
 
                     if (marker) marker.setMap(null);
