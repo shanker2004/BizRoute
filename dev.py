@@ -5,30 +5,126 @@ from dotenv import load_dotenv
 import os
 import datetime
 from datetime import date
-import mysql.connector
-import googlemaps
+import json
+
+# Try to import MySQL, but make it optional
+try:
+    import mysql.connector
+    MYSQL_AVAILABLE = True
+except ImportError:
+    MYSQL_AVAILABLE = False
+    print("MySQL connector not available - database features will be disabled")
+
+try:
+    import googlemaps
+    GOOGLEMAPS_AVAILABLE = True
+except ImportError:
+    GOOGLEMAPS_AVAILABLE = False
+    print("googlemaps library not available - some features may be limited")
 
 app = Flask(__name__)
 load_dotenv()
 
+# Try to connect to database, but don't fail if it's not available
 db_config = {
     'host': 'localhost',
     'user': 'fedex',
     'password': 'BizRoute',
     'database': 'BizRoute'
 }
-conn = mysql.connector.connect(**db_config)
-cursor = conn.cursor(dictionary=True)
+
+conn = None
+cursor = None
+gmaps = None
+
+if MYSQL_AVAILABLE:
+    try:
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor(dictionary=True)
+        print("✓ Database connected successfully")
+    except mysql.connector.Error as err:
+        print(f"⚠ Database connection failed: {err}")
+        print("  App will run without database features")
+        conn = None
+        cursor = None
 
 GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY')
 TOMTOM_API_KEY = os.getenv('TOMTOM_API_KEY')
 AQICN_API_KEY = os.getenv('AQICN_API_KEY')
-gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
+
+if GOOGLEMAPS_AVAILABLE and GOOGLE_MAPS_API_KEY:
+    try:
+        gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
+    except Exception as e:
+        print(f"⚠ Google Maps client initialization failed: {e}")
+
+# --- MOCK DATA STORAGE (Option 2) ---
+ORDERS_FILE = 'orders.json'
+
+def load_orders():
+    if not os.path.exists(ORDERS_FILE):
+        return []
+    try:
+        with open(ORDERS_FILE, 'r') as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def save_orders(orders):
+    with open(ORDERS_FILE, 'w') as f:
+        json.dump(orders, f, indent=4)
+
+# Initialize storage if needed
+if not os.path.exists(ORDERS_FILE):
+    save_orders([
+        {
+            "id": 1,
+            "productId": "BIZ-1001",
+            "deliveryDate": date.today().isoformat(),
+            "deliveryLocation": "13.0827,80.2707", # Chennai
+            "created_at": str(datetime.datetime.now())
+        },
+        {
+            "id": 2,
+            "productId": "BIZ-1002",
+            "deliveryDate": date.today().isoformat(),
+            "deliveryLocation": "13.0475,80.2089", # T.Nagar
+            "created_at": str(datetime.datetime.now())
+        }
+    ])
+# -----------------------------------
 
 EMISSION_FACTOR = 0.12  
 
-def calculate_emissions(distance_km):
-    return round(distance_km * EMISSION_FACTOR, 2)
+def calculate_emissions(distance_km, mode='DRIVING', fuel_type='PETROL'):
+    """Calculate emissions based on distance, mode, and fuel type."""
+    emission_factors = {
+        'DRIVING': {
+            'PETROL': 180,  # g/km
+            'DIESEL': 190,
+            'ELECTRIC': 0,
+            'CNG': 120,
+        },
+        'BICYCLING': 0,
+        'WALKING': 0,
+        'TRANSIT': {
+            'PETROL': 100,
+            'ELECTRIC': 0,
+        },
+        'TRUCK': 300,
+    }
+
+    if mode in ['BICYCLING', 'WALKING']:
+        return 0
+
+    if mode in ['DRIVING', 'TRANSIT']:
+        factor = emission_factors[mode].get(fuel_type, 180 if mode == 'DRIVING' else 100)
+    else:
+        factor = emission_factors.get(mode, 180)
+
+    # Convert g/km to kg/km and multiply by distance
+    emissions = (factor / 1000) * distance_km
+    return round(emissions, 2)
 
 @app.route('/')
 def dashboard():
@@ -40,79 +136,66 @@ def routes():
 @app.route('/get-routes', methods=['POST'])
 def get_routes():
     data = request.json
-    start_coords = data['start_coords']
-    end_coords = data['end_coords']
-    mode = data.get('mode')  
-    fuel_type = data.get('fuel_type') 
-    enable_traffic = data.get('enableTraffic') 
+    
+    # Handle both single route and multiple routes from smart_schedule.html
+    if 'routes' in data:
+        results = []
+        for r in data['routes']:
+            start_coords = r.get('start')
+            end_coords = r.get('end')
+            results.extend(process_single_route(start_coords, end_coords))
+        return jsonify({'routes': results})
+    
+    start_coords = data.get('start_coords')
+    end_coords = data.get('end_coords')
+    mode = data.get('mode', 'DRIVING')
+    fuel_type = data.get('fuel_type', 'PETROL')
+    enable_traffic = data.get('enableTraffic', False)
+    
+    route_details = process_single_route(start_coords, end_coords, mode, fuel_type, enable_traffic)
+    return jsonify({'routes': route_details})
 
-    directions_url = f"https://maps.googleapis.com/maps/api/directions/json"
+def process_single_route(start_coords, end_coords, mode='DRIVING', fuel_type='PETROL', enable_traffic=False):
+    if not start_coords or not end_coords:
+        return []
 
-    driving_options = None
-    if enable_traffic:
-        driving_options = {
-            'departureTime': 'now',
-            'trafficModel': 'best_guess'
-        }
-
+    directions_url = "https://maps.googleapis.com/maps/api/directions/json"
+    
     params = {
         'origin': start_coords,
         'destination': end_coords,
         'alternatives': 'true',
         'key': GOOGLE_MAPS_API_KEY,
         'mode': mode,
-        'drivingOptions': driving_options,
     }
     
+    if enable_traffic and mode == 'DRIVING':
+        params['departure_time'] = 'now'
+        params['traffic_model'] = 'best_guess'
+
     response = requests.get(directions_url, params=params)
     routes = response.json().get('routes', [])
 
+    # Sort routes by a simple heuristic
     routes = sorted(routes, key=lambda x: (
-        x['legs'][0]['distance']['value'],  
-        x['legs'][0]['duration']['value'],  
-        calculateemissions(x['legs'][0]['distance']['value'] / 1000, mode, fuel_type)  
+        x['legs'][0]['distance']['value'],
+        x['legs'][0]['duration']['value']
     ))
 
     route_details = []
-    for index, route in enumerate(routes[:3]):
-        distance = route['legs'][0]['distance']['value'] / 1000  
+    for route in routes[:3]:
+        distance_km = route['legs'][0]['distance']['value'] / 1000
         duration = route['legs'][0]['duration']['text']
-        emissions = calculateemissions(distance, mode, fuel_type)  
+        emissions = calculate_emissions(distance_km, mode, fuel_type)
         route_details.append({
-            'summary': route['summary'],
-            'distance': f"{distance:.2f} km",
+            'summary': route.get('summary', 'Route'),
+            'distance': f"{distance_km:.2f} km",
             'duration': duration,
             'emissions': f"{emissions} kg CO₂",
             'polyline': route['overview_polyline']['points'],
         })
-
-    return jsonify({'routes': route_details})
-def calculateemissions(distance_km, mode, fuel_type):
-    emission_factors = {
-        'DRIVING': {
-            'PETROL': 180,  
-            'DIESEL': 190,
-            'ELECTRIC': 0,
-            'CNG': 120,
-        },
-        'BICYCLING': 0,  
-        'TRANSIT': {
-            'PETROL': 100,  
-            'ELECTRIC': 0,
-        },
-        'TRUCK': 300, 
-    }
-
-    if mode == 'BICYCLING':
-        return 0
-
-    if mode in ['DRIVING', 'TRANSIT']:
-        emission_factor = emission_factors[mode].get(fuel_type, 0)
-    else:
-        emission_factor = emission_factors.get(mode, 0)
-
-    emissions = emission_factor * distance_km / 1000  
-    return round(emissions, 2)
+    return route_details
+# Removed redundant calculateemissions function as it's consolidated above
 
 
 @app.route('/smart_scheduling')
@@ -205,8 +288,8 @@ def optimize_routes(all_routes, num_orders, priority):
                 'polyline': g_route.get('overview_polyline', {}).get('points', '')
             })
 
-        route_data = sorted(route_data, key=lambda x: (x['distance'], x['emissions']))
-        best_routes.append(route_data[:1])  
+        route_details = sorted(route_data, key=lambda x: (x['distance'], x['emissions']))
+        best_routes.append(route_details[:1])  
     return best_routes
 
 @app.route('/calculate-multi-routes')
@@ -271,13 +354,7 @@ def get_route_from_google_maps(start_coords, end_coords):
         print(f"Error fetching routes from Google Maps: {e}")
         return {}
 
-def calculate_emissions(distance_km):
-    """
-    Calculate emissions based on the distance.
-    Assume 120g CO₂ per km for a car.
-    """
-    emission_rate = 0.12  
-    return distance_km * emission_rate
+# Removed redundant calculate_emissions function
 
 
 def estimate_arrival_time(duration_seconds):
@@ -301,17 +378,24 @@ def client():
 
 @app.route('/place_order', methods=['POST'])
 def place_order():
-    data = request.json
-    productId = data['productId']
-    deliveryDate = data['deliveryDate']
-    deliveryLocation = data['deliveryLocation']
-
-    cursor.execute(
-        "INSERT INTO ClientOrders (productId, deliveryDate, deliveryLocation) VALUES (%s, %s, %s)",
-        (productId, deliveryDate, deliveryLocation)
-    )
-    conn.commit()
-    return jsonify({"message": "Order placed successfully!"})
+    try:
+        data = request.json
+        orders = load_orders()
+        
+        new_order = {
+            "id": len(orders) + 1,
+            "productId": data['productId'],
+            "deliveryDate": data['deliveryDate'],
+            "deliveryLocation": data['deliveryLocation'],
+            "created_at": str(datetime.datetime.now())
+        }
+        
+        orders.append(new_order)
+        save_orders(orders)
+        
+        return jsonify({"message": "Order placed successfully (Mock Storage)!"})
+    except Exception as e:
+        return jsonify({"error": f"Failed to place order: {str(e)}"}), 500
 
 # Endpoint to reschedule an order
 @app.route('/reschedule_order', methods=['POST'])
@@ -320,35 +404,23 @@ def reschedule_order():
     order_id = data.get('orderId')
     new_date = data.get('newDate')
 
-    # Validate input
     if not order_id or not new_date:
         return jsonify({'message': 'Order ID and New Date are required'}), 400
 
     try:
-        # Connect to database
-        conn = mysql.connector.connect(**db_config)
-        cursor = conn.cursor(dictionary=True)
-
-        # Check if the order ID exists
-        query_check = "SELECT * FROM clientOrders WHERE productId = %s"
-        cursor.execute(query_check, (order_id,))
-        order = cursor.fetchone()
-
-        if not order:
+        orders = load_orders()
+        found = False
+        for order in orders:
+            if str(order['productId']) == str(order_id):
+                order['deliveryDate'] = new_date
+                found = True
+                break
+        
+        if not found:
             return jsonify({'message': f'Product ID {order_id} does not exist'}), 404
 
-        # Update the delivery date
-        query_update = "UPDATE clientOrders SET deliveryDate = %s WHERE productId = %s"
-        cursor.execute(query_update, (new_date, order_id))
-        conn.commit()
-
-        cursor.close()
-        conn.close()
-
-        return jsonify({'message': f'Delivery date updated successfully for Product ID {order_id}'}), 200
-
-    except mysql.connector.Error as err:
-        return jsonify({'message': f'Database error: {err}'}), 500
+        save_orders(orders)
+        return jsonify({'message': f'Delivery date updated successfully for Product ID {order_id} (Mock Storage)'}), 200
 
     except Exception as e:
         return jsonify({'message': f'An unexpected error occurred: {str(e)}'}), 500
@@ -356,60 +428,63 @@ def reschedule_order():
 # Endpoint to get delivery partner routes
 @app.route('/delivery-partner', methods=['GET'])
 def delivery_partner():
-    today = date.today().isoformat()
+    if not gmaps:
+        return jsonify({'error': 'Google Maps client not available. Please check API key configuration.'}), 503
     
-    # Connect to the database
-    conn = mysql.connector.connect(**db_config)
-    cursor = conn.cursor(dictionary=True)
-    
-    # Fetch all orders for today's date
-    query = "SELECT * FROM clientorders WHERE deliveryDate = %s"
-    cursor.execute(query, (today,))
-    orders = cursor.fetchall()
-    conn.close()
-    
-    if not orders:
-        return jsonify({'message': 'No orders found for today'}), 404
-    
-    delivery_locations = [order['deliveryLocation'] for order in orders]
-    
-    # Fetch start point (current location) from the frontend
-    current_location = request.args.get('currentLocation', '13.0827,80.2707')  # Default to Chennai if not provided
-    current_lat, current_lng = map(float, current_location.split(','))
-    
-    # Calculate the best route using Google Maps API
-    waypoints = delivery_locations
-    directions_result = gmaps.directions(
-        origin=current_location,
-        destination=waypoints[-1],
-        waypoints=waypoints[:-1],
-        optimize_waypoints=True
-    )
-    
-    # Parse the directions result
-    route = directions_result[0]
-    overview_polyline = route['overview_polyline']['points']
-    legs = route['legs']
-    
-    route_details = {
-        'overall_distance': sum(leg['distance']['value'] for leg in legs) / 1000,  # in kilometers
-        'overall_time': sum(leg['duration']['value'] for leg in legs) / 60,  # in minutes
-        'overall_carbon_emission': round(0.120 * (sum(leg['distance']['value'] for leg in legs) / 1000), 2),  # Approximation
-        'polyline': overview_polyline,
-        'markers': [{'lat': leg['start_location']['lat'], 'lng': leg['start_location']['lng']} for leg in legs]
-    }
-    
-    detailed_points = []
-    for i, order in enumerate(orders):
-        leg = legs[i]
-        detailed_points.append({
-            'productId': order['productId'],
-            'estimated_time_reach': leg['duration']['text'],
-            'distance_from_origin': leg['distance']['text'],
-            'location': order['deliveryLocation']
-        })
-    
-    return jsonify({'route_details': route_details, 'detailed_points': detailed_points})
+    try:
+        today = date.today().isoformat()
+        orders = load_orders()
+        
+        # Filter orders for today
+        todays_orders = [o for o in orders if o['deliveryDate'] == today]
+        
+        if not todays_orders:
+            return jsonify({'message': 'No orders found for today (Mock Storage)'}), 404
+        
+        delivery_locations = [order['deliveryLocation'] for order in todays_orders]
+        
+        # Fetch start point (current location) from the frontend
+        current_location = request.args.get('currentLocation', '13.0827,80.2707')  # Default to Chennai if not provided
+        
+        # Calculate the best route using Google Maps API
+        waypoints = delivery_locations
+        directions_result = gmaps.directions(
+            origin=current_location,
+            destination=waypoints[-1],
+            waypoints=waypoints[:-1],
+            optimize_waypoints=True
+        )
+        
+        if not directions_result:
+            return jsonify({'error': 'No route found'}), 404
+            
+        # Parse the directions result
+        route = directions_result[0]
+        overview_polyline = route['overview_polyline']['points']
+        legs = route['legs']
+        
+        route_details = {
+            'overall_distance': sum(leg['distance']['value'] for leg in legs) / 1000,  # in kilometers
+            'overall_time': sum(leg['duration']['value'] for leg in legs) / 60,  # in minutes
+            'overall_carbon_emission': round(0.120 * (sum(leg['distance']['value'] for leg in legs) / 1000), 2),  # Approximation
+            'polyline': overview_polyline,
+            'markers': [{'lat': leg['start_location']['lat'], 'lng': leg['start_location']['lng']} for leg in legs]
+        }
+        
+        detailed_points = []
+        for i, order in enumerate(todays_orders):
+            if i < len(legs):
+                leg = legs[i]
+                detailed_points.append({
+                    'productId': order['productId'],
+                    'estimated_time_reach': leg['duration']['text'],
+                    'distance_from_origin': leg['distance']['text'],
+                    'location': order['deliveryLocation']
+                })
+        
+        return jsonify({'route_details': route_details, 'detailed_points': detailed_points})
+    except Exception as e:
+        return jsonify({'error': f'Failed to get delivery routes: {str(e)}'}), 500
 
 
 if __name__ == '__main__':

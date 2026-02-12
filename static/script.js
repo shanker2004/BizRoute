@@ -1,5 +1,5 @@
 (function () {
-    const map = L.map('map').setView([51.505, -0.09], 13);  
+    const map = L.map('map').setView([51.505, -0.09], 13);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19
@@ -13,7 +13,7 @@
             navigator.geolocation.getCurrentPosition(
                 (position) => {
                     const { latitude, longitude } = position.coords;
-                    map.setView([latitude, longitude], 13);  
+                    map.setView([latitude, longitude], 13);
                     L.marker([latitude, longitude])
                         .addTo(map)
                         .bindPopup('You are here')
@@ -54,8 +54,8 @@
     };
 
     document.getElementById('routeForm').addEventListener('submit', async (e) => {
-        e.preventDefault();  
-    
+        e.preventDefault();
+
         const start = document.getElementById('start').value;
         const end = document.getElementById('end').value;
         const vehicleType = document.getElementById('vehicle_type').value;
@@ -65,9 +65,9 @@
             document.getElementById('error').innerText = 'Please select both start and end locations.';
             return;
         }
-    
+
         try {
-       
+
             const response = await fetch('/route', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -79,7 +79,7 @@
             // Debugging: Log response for review
             console.log('Backend Response:', response);
             console.log('Response Data:', data);
-    
+
             // Handle the response from the server
             if (response.ok) {
                 // Show route details in the UI
@@ -87,8 +87,12 @@
                 document.getElementById('error').style.display = 'none';
 
                 // Destructure the response data for route, emissions, and weather
-                const { best_route, emissions, weather } = data;
-                const { distance_km, duration_min } = best_route;
+                const best_route = data.best_route || {};
+                const emissions = data.emissions || 0;
+                const weather = data.weather || 'Unknown';
+
+                const distance_km = best_route.distance_km || 0;
+                const duration_min = best_route.duration_min || 0;
 
                 document.getElementById('routeDetails').innerHTML = `
                     <p><strong>Distance:</strong> ${distance_km.toFixed(2)} km</p>
@@ -108,7 +112,7 @@
             document.getElementById('routeDetails').style.display = 'none';
         }
     });
-    
+
 
     // Package load form submission
     const packageLoadForm = document.getElementById('packageLoadForm');

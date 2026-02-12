@@ -9,6 +9,9 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <!-- Leaflet Fallback -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         body {
             background-color: #f1f5f9;
@@ -155,34 +158,80 @@
         </div>
     </div>
 
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script>
+        // Modern async loading for Google Maps
+        (function () {
+            const script = document.createElement('script');
+            script.src = "https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&callback=initMap&libraries=places";
+            script.async = true;
+            script.defer = true;
+            script.onerror = () => {
+                console.warn("Google Maps failed to load. Falling back to Leaflet.");
+                initLeafletFallback();
+            };
+            document.head.appendChild(script);
+        })();
+
         let map, directionsRenderer, directionsService, trafficLayer, geocoder;
+        let leafletMap;
         let trafficLayerVisible = false;
+        let isGoogleMapsLoaded = false;
 
         function initMap() {
-            map = new google.maps.Map(document.getElementById("map"), {
-                zoom: 7,
-                center: { lat: 20.5937, lng: 78.9629 },
-            });
+            try {
+                isGoogleMapsLoaded = true;
+                map = new google.maps.Map(document.getElementById("map"), {
+                    zoom: 7,
+                    center: { lat: 20.5937, lng: 78.9629 },
+                });
 
-            directionsRenderer = new google.maps.DirectionsRenderer({ map: map });
-            directionsService = new google.maps.DirectionsService();
-            geocoder = new google.maps.Geocoder();
-            trafficLayer = new google.maps.TrafficLayer();
+                directionsRenderer = new google.maps.DirectionsRenderer({ map: map });
+                directionsService = new google.maps.DirectionsService();
+                geocoder = new google.maps.Geocoder();
+                trafficLayer = new google.maps.TrafficLayer();
 
-            document.getElementById("toggle-traffic").addEventListener("change", (event) => {
-                trafficLayerVisible = event.target.checked;
-                if (trafficLayerVisible) {
-                    trafficLayer.setMap(map);
-                    event.target.nextElementSibling.innerText = "Hide Traffic";
-                } else {
-                    trafficLayer.setMap(null);
-                    event.target.nextElementSibling.innerText = "Show Traffic";
-                }
-            });
+                document.getElementById("toggle-traffic").addEventListener("change", (event) => {
+                    trafficLayerVisible = event.target.checked;
+                    if (trafficLayerVisible) {
+                        trafficLayer.setMap(map);
+                        event.target.nextElementSibling.innerText = "Hide Traffic";
+                    } else {
+                        trafficLayer.setMap(null);
+                        event.target.nextElementSibling.innerText = "Show Traffic";
+                    }
+                });
+            } catch (e) {
+                console.error("Failed to initialize Google Maps:", e);
+                initLeafletFallback();
+            }
+        }
+
+        function initLeafletFallback() {
+            if (leafletMap) return;
+            console.log("Initializing Leaflet fallback...");
+            const mapDiv = document.getElementById("map");
+            mapDiv.innerHTML = ""; // Clear any partial Google Maps content
+            leafletMap = L.map(mapDiv).setView([20.5937, 78.9629], 5);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(leafletMap);
+
+            // Show alert about fallback
+            const alertDiv = document.createElement("div");
+            alertDiv.className = "alert alert-warning mt-2";
+            alertDiv.innerHTML = "<strong>Notice:</strong> Using OpenStreetMap fallback because Google Maps API key is invalid or restricted.";
+            mapDiv.parentNode.insertBefore(alertDiv, mapDiv.nextSibling);
+
+            // Disable Google-specific features
+            $("#toggle-traffic").parent().hide();
         }
 
         function calculateRoute(start, finalDestination, intermediateDestinations, travelMode) {
+            if (!isGoogleMapsLoaded) {
+                alert("Google Maps is not available. Route planning is disabled.");
+                return;
+            }
             const waypoints = intermediateDestinations.map(loc => ({ location: loc, stopover: true }));
 
             const request = {

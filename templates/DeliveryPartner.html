@@ -10,9 +10,23 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/fa-all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-
-    <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places,geometry" async
-        defer></script>
+    <!-- Leaflet Fallback -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Modern async loading for Google Maps
+        (function () {
+            const script = document.createElement('script');
+            script.src = "https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places,geometry&callback=initMap";
+            script.async = true;
+            script.defer = true;
+            script.onerror = () => {
+                console.warn("Google Maps failed to load. Falling back to Leaflet.");
+                initLeafletFallback();
+            };
+            document.head.appendChild(script);
+        })();
+    </script>
 
     <style>
         body {
@@ -104,19 +118,63 @@
     </div>
 
     <script>
-        const fetchDataAndInitMap = async () => {
+        let map;
+        let leafletMap;
+        let isGoogleMapsLoaded = false;
+
+        function initMap() {
+            console.log("Google Maps initMap called");
+            isGoogleMapsLoaded = true;
+            fetchDataAndDisplayRoute();
+        }
+
+        function initLeafletFallback(data = null) {
+            if (leafletMap) return;
+            console.log("Initializing Leaflet fallback...");
+            const mapDiv = document.getElementById("map");
+            mapDiv.innerHTML = "";
+
+            const center = data && data.route_details && data.route_details.markers && data.route_details.markers.length > 0
+                ? [data.route_details.markers[0].lat, data.route_details.markers[0].lng]
+                : [13.0827, 80.2707]; // Default to Chennai
+
+            leafletMap = L.map(mapDiv).setView(center, 12);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(leafletMap);
+
+            if (data && data.route_details && data.route_details.markers) {
+                data.route_details.markers.forEach((marker, index) => {
+                    L.marker([marker.lat, marker.lng]).addTo(leafletMap)
+                        .bindPopup(index === 0 ? "Start" : index === data.route_details.markers.length - 1 ? "End" : `Stop ${index}`);
+                });
+
+                const latlngs = data.route_details.markers.map(m => [m.lat, m.lng]);
+                const polyline = L.polyline(latlngs, { color: '#007BFF', weight: 4 }).addTo(leafletMap);
+                leafletMap.fitBounds(polyline.getBounds());
+            }
+
+            const alertDiv = document.createElement("div");
+            alertDiv.className = "alert alert-warning mt-2";
+            alertDiv.innerHTML = "<strong>Notice:</strong> Using OpenStreetMap fallback because Google Maps API key is invalid or restricted.";
+            mapDiv.parentNode.insertBefore(alertDiv, mapDiv.nextSibling);
+
+            // If we have data but Google failed, we still need to show details
+            if (data && data.detailed_points) {
+                displayDetails(data);
+            }
+        }
+
+        const fetchDataAndDisplayRoute = async () => {
             try {
                 const currentLocation = await new Promise((resolve, reject) => {
                     if (navigator.geolocation) {
                         navigator.geolocation.getCurrentPosition(
-                            (position) => {
-                                const { latitude, longitude } = position.coords;
-                                resolve(`${latitude},${longitude}`);
-                            },
-                            (error) => reject(error)
+                            (position) => resolve(`${position.coords.latitude},${position.coords.longitude}`),
+                            (error) => resolve("13.0827,80.2707") // Fallback to Chennai on error
                         );
                     } else {
-                        reject(new Error("Geolocation not supported by this browser."));
+                        resolve("13.0827,80.2707");
                     }
                 });
 
@@ -128,71 +186,90 @@
                     return;
                 }
 
-                const map = new google.maps.Map(document.getElementById("map"), {
-                    zoom: 12,
-                    center: {
-                        lat: data.route_details.markers[0].lat,
-                        lng: data.route_details.markers[0].lng,
-                    },
-                });
+                if (isGoogleMapsLoaded) {
+                    try {
+                        map = new google.maps.Map(document.getElementById("map"), {
+                            zoom: 12,
+                            center: {
+                                lat: data.route_details.markers[0].lat,
+                                lng: data.route_details.markers[0].lng,
+                            },
+                        });
 
-                const routePath = new google.maps.Polyline({
-                    path: google.maps.geometry.encoding.decodePath(data.route_details.polyline),
-                    geodesic: true,
-                    strokeColor: "#007BFF",
-                    strokeOpacity: 1.0,
-                    strokeWeight: 4,
-                });
-                routePath.setMap(map);
+                        const routePath = new google.maps.Polyline({
+                            path: google.maps.geometry.encoding.decodePath(data.route_details.polyline),
+                            geodesic: true,
+                            strokeColor: "#007BFF",
+                            strokeOpacity: 1.0,
+                            strokeWeight: 4,
+                        });
+                        routePath.setMap(map);
 
-                const icons = {
-                    start: { url: "https://maps.google.com/mapfiles/ms/icons/red-dot.png", scaledSize: new google.maps.Size(40, 40) },
-                    end: { url: "https://maps.google.com/mapfiles/ms/icons/green-dot.png", scaledSize: new google.maps.Size(40, 40) },
-                    intermediate: { url: "https://maps.google.com/mapfiles/ms/icons/blue-dot.png", scaledSize: new google.maps.Size(40, 40) },
-                };
+                        const icons = {
+                            start: { url: "https://maps.google.com/mapfiles/ms/icons/red-dot.png", scaledSize: new google.maps.Size(40, 40) },
+                            end: { url: "https://maps.google.com/mapfiles/ms/icons/green-dot.png", scaledSize: new google.maps.Size(40, 40) },
+                            intermediate: { url: "https://maps.google.com/mapfiles/ms/icons/blue-dot.png", scaledSize: new google.maps.Size(40, 40) },
+                        };
 
-                const markers = data.route_details.markers;
-                markers.forEach((marker, index) => {
-                    const markerOptions = {
-                        position: { lat: marker.lat, lng: marker.lng },
-                        map,
-                        icon: index === 0 ? icons.start :
-                            index === markers.length - 1 ? icons.end : icons.intermediate,
-                        label: {
-                            text: index === 0 ? "S" : index === markers.length - 1 ? "E" : `${index}`,
-                            color: "white",
-                            fontSize: "14px",
-                            fontWeight: "bold",
-                        },
-                    };
-                    new google.maps.Marker(markerOptions);
-                });
+                        data.route_details.markers.forEach((marker, index) => {
+                            new google.maps.Marker({
+                                position: { lat: marker.lat, lng: marker.lng },
+                                map,
+                                icon: index === 0 ? icons.start :
+                                    index === data.route_details.markers.length - 1 ? icons.end : icons.intermediate,
+                                label: {
+                                    text: index === 0 ? "S" : index === data.route_details.markers.length - 1 ? "E" : `${index}`,
+                                    color: "white",
+                                    fontSize: "14px",
+                                    fontWeight: "bold",
+                                },
+                            });
+                        });
+                        displayDetails(data);
+                    } catch (e) {
+                        console.error("Google Maps display failed:", e);
+                        initLeafletFallback(data);
+                    }
+                } else {
+                    initLeafletFallback(data);
+                }
 
-                const detailsDiv = document.getElementById("details");
-                data.detailed_points.forEach((point) => {
-                    detailsDiv.innerHTML += `
-                        <div class="card">
-                            <p><strong>Product ID:</strong> ${point.productId}</p>
-                            <p><strong>Estimated Time to Reach:</strong> ${point.estimated_time_reach}</p>
-                            <p><strong>Distance from Origin:</strong> ${point.distance_from_origin}</p>
-                            <p><strong>Location:</strong> ${point.location}</p>
-                        </div>`;
-                });
-
-                detailsDiv.innerHTML += `
-                    <div class="route-summary">
-                        <h3>Route Summary</h3>
-                        <p><strong>Overall Distance:</strong> ${data.route_details.overall_distance} km</p>
-                        <p><strong>Overall Time:</strong> ${data.route_details.overall_time} minutes</p>
-                        <p><strong>Overall Carbon Emission:</strong> ${data.route_details.overall_carbon_emission} kg</p>
-                    </div>`;
             } catch (error) {
                 console.error("Error:", error);
-                alert("Unable to fetch route data. Please try again.");
+                alert("Unable to fetch route data.");
+                initLeafletFallback();
             }
         };
 
-        fetchDataAndInitMap();
+        function displayDetails(data) {
+            const detailsDiv = document.getElementById("details");
+            detailsDiv.innerHTML = "";
+            data.detailed_points.forEach((point) => {
+                detailsDiv.innerHTML += `
+                    <div class="card">
+                        <p><strong>Product ID:</strong> ${point.productId}</p>
+                        <p><strong>Estimated Time to Reach:</strong> ${point.estimated_time_reach}</p>
+                        <p><strong>Distance from Origin:</strong> ${point.distance_from_origin}</p>
+                        <p><strong>Location:</strong> ${point.location}</p>
+                    </div>`;
+            });
+
+            detailsDiv.innerHTML += `
+                <div class="route-summary">
+                    <h3>Route Summary</h3>
+                    <p><strong>Overall Distance:</strong> ${data.route_details.overall_distance} km</p>
+                    <p><strong>Overall Time:</strong> ${data.route_details.overall_time} minutes</p>
+                    <p><strong>Overall Carbon Emission:</strong> ${data.route_details.overall_carbon_emission} kg</p>
+                </div>`;
+        }
+
+        // Trigger fetch if script load takes too long or fails
+        setTimeout(() => {
+            if (!isGoogleMapsLoaded && !leafletMap) {
+                console.warn("Google Maps load timeout. Using Leaflet.");
+                fetchDataAndDisplayRoute();
+            }
+        }, 5000);
     </script>
 </body>
 
