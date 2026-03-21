@@ -14,18 +14,10 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // Modern async loading for Google Maps
-        (function () {
-            const script = document.createElement('script');
-            script.src = "https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places,geometry&callback=initMap&loading=async";
-            script.async = true;
-            script.defer = true;
-            script.onerror = () => {
-                console.warn("Google Maps failed to load. Falling back to Leaflet.");
-                initLeafletFallback();
-            };
-            document.head.appendChild(script);
-        })();
+        // Default to Leaflet for 100% free operation
+        window.addEventListener('DOMContentLoaded', () => {
+            fetchDataAndDisplayRoute();
+        });
     </script>
 
     <style>
@@ -49,6 +41,29 @@
             border: 1px solid #e2e8f0;
             box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
             margin-bottom: 30px;
+            position: relative;
+        }
+
+        .map-loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            border-radius: 12px;
+            transition: opacity 0.3s ease;
+        }
+
+        .spinner-grow {
+            width: 3rem;
+            height: 3rem;
+            color: #4f46e5;
         }
 
         .route-summary {
@@ -110,56 +125,132 @@
     <h1>Delivery Route Optimization</h1>
 
     <div class="container">
-        <div id="map"></div>
+        <div id="map">
+            <div id="map-loader" class="map-loading-overlay">
+                <div class="spinner-grow" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <h5 class="mt-3 text-primary fw-bold">Optimizing Delivery Routes...</h5>
+            </div>
+        </div>
     </div>
 
     <div class="details-container">
         <div id="details" class="cards-grid"></div>
     </div>
 
-    <script>
-        let map;
-        let leafletMap;
-        let isGoogleMapsLoaded = false;
+    <div class="container mt-5 mb-5">
+        <div class="card">
+            <h5>Existing Orders (Mock Storage)</h5>
+            <div class="table-responsive">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Product ID</th>
+                            <th>Customer</th>
+                            <th>Location / Address</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="orders-table-body">
+                        <tr><td colspan="4" class="text-center">Loading orders...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div id="orders-error" class="text-danger mt-2" style="display:none;">Error loading orders.</div>
+        </div>
+    </div>
 
-        function initMap() {
-            console.log("Google Maps initMap called");
-            isGoogleMapsLoaded = true;
-            fetchDataAndDisplayRoute();
+    <script>
+        let leafletMap;
+
+        async function getOSRMRoute(waypoints) {
+            try {
+                // waypoints: [[lat, lng], [lat, lng], ...]
+                const pointsStr = waypoints.map(p => `${p[1]},${p[0]}`).join(';');
+                const url = `https://router.project-osrm.org/route/v1/driving/${pointsStr}?overview=full&geometries=geojson`;
+                const response = await fetch(url);
+                const data = await response.json();
+                if (data.code === 'Ok' && data.routes.length > 0) {
+                    return data.routes[0].geometry.coordinates.map(coord => [coord[1], coord[0]]);
+                }
+            } catch (e) { console.error("OSRM Error:", e); }
+            return waypoints;
         }
 
-        function initLeafletFallback(data = null) {
-            if (leafletMap) return;
-            console.log("Initializing Leaflet fallback...");
-            const mapDiv = document.getElementById("map");
-            mapDiv.innerHTML = "";
-
-            const center = data && data.route_details && data.route_details.markers && data.route_details.markers.length > 0
-                ? [data.route_details.markers[0].lat, data.route_details.markers[0].lng]
-                : [13.0827, 80.2707]; // Default to Chennai
-
-            leafletMap = L.map(mapDiv).setView(center, 12);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; OpenStreetMap contributors'
-            }).addTo(leafletMap);
-
-            if (data && data.route_details && data.route_details.markers) {
-                data.route_details.markers.forEach((marker, index) => {
-                    L.marker([marker.lat, marker.lng]).addTo(leafletMap)
-                        .bindPopup(index === 0 ? "Start" : index === data.route_details.markers.length - 1 ? "End" : `Stop ${index}`);
-                });
-
-                const latlngs = data.route_details.markers.map(m => [m.lat, m.lng]);
-                const polyline = L.polyline(latlngs, { color: '#007BFF', weight: 4 }).addTo(leafletMap);
-                leafletMap.fitBounds(polyline.getBounds());
+        async function initLeafletFallback(data = null) {
+            if (!leafletMap) {
+                const mapDiv = document.getElementById("map");
+                mapDiv.innerHTML = "";
+                const center = data && data.route_details && data.route_details.markers && data.route_details.markers.length > 0
+                    ? [data.route_details.markers[0].lat, data.route_details.markers[0].lng]
+                    : [13.0827, 80.2707];
+                leafletMap = L.map(mapDiv).setView(center, 12);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; OpenStreetMap contributors'
+                }).addTo(leafletMap);
             }
 
-            const alertDiv = document.createElement("div");
-            alertDiv.className = "alert alert-warning mt-2";
-            alertDiv.innerHTML = "<strong>Notice:</strong> Using OpenStreetMap fallback because Google Maps API key is invalid or restricted.";
-            mapDiv.parentNode.insertBefore(alertDiv, mapDiv.nextSibling);
+            // Clear old markers/polylines
+            leafletMap.eachLayer(layer => {
+                if (layer instanceof L.Marker || layer instanceof L.Polyline) {
+                    leafletMap.removeLayer(layer);
+                }
+            });
 
-            // If we have data but Google failed, we still need to show details
+            if (data && data.route_details && data.route_details.markers) {
+                const markerPoints = data.route_details.markers.map(m => [m.lat, m.lng]);
+                
+                markerPoints.forEach((p, index) => {
+                    let color = '#4f46e5'; // Default blue
+                    let label = `Stop ${index}`;
+                    
+                    if (index === 0) {
+                        color = '#10b981'; // Green for Start
+                        label = "Depot / Origin";
+                    } else if (index === markerPoints.length - 1) {
+                        color = '#ef4444'; // Red for End
+                        label = "Final Destination";
+                    }
+
+                    const circleIcon = L.divIcon({
+                        className: 'custom-icon',
+                        html: `<div style="background-color: ${color}; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; font-weight: bold;">${index === 0 ? '<i class="fas fa-warehouse"></i>' : index === markerPoints.length - 1 ? '<i class="fas fa-flag-checkered"></i>' : index}</div>`,
+                        iconSize: [24, 24],
+                        iconAnchor: [12, 12]
+                    });
+
+                    L.marker(p, { icon: circleIcon }).addTo(leafletMap)
+                        .bindPopup(`<strong>${label}</strong><br>${data.detailed_points[index]?.location || ''}`);
+                });
+
+                if (markerPoints.length > 1) {
+                    const roadPoints = await getOSRMRoute(markerPoints);
+                    const polyline = L.polyline(roadPoints, { 
+                        color: '#4f46e5', 
+                        weight: 6, 
+                        opacity: 0.6,
+                        lineJoin: 'round',
+                        dashArray: '1, 10'
+                    }).addTo(leafletMap);
+                    
+                    // Add animate effect (simulated with standard polyline but thicker)
+                    L.polyline(roadPoints, { 
+                        color: '#4f46e5', 
+                        weight: 2, 
+                        opacity: 1
+                    }).addTo(leafletMap);
+
+                    leafletMap.fitBounds(polyline.getBounds(), { padding: [50, 50] });
+                }
+                
+                // Hide loader
+                document.getElementById('map-loader').style.opacity = '0';
+                setTimeout(() => {
+                    document.getElementById('map-loader').style.display = 'none';
+                }, 300);
+            }
+
             if (data && data.detailed_points) {
                 displayDetails(data);
             }
@@ -167,98 +258,49 @@
 
         const fetchDataAndDisplayRoute = async () => {
             try {
-                console.log("Fetching delivery route data...");
-                const currentLocation = await new Promise((resolve) => {
-                    if (navigator.geolocation) {
-                        const geoTimeout = setTimeout(() => {
-                            console.warn("Geolocation timed out. Using fallback.");
-                            resolve("13.0827,80.2707");
-                        }, 3000);
-
-                        navigator.geolocation.getCurrentPosition(
-                            (position) => {
-                                clearTimeout(geoTimeout);
-                                resolve(`${position.coords.latitude},${position.coords.longitude}`);
-                            },
-                            (error) => {
-                                clearTimeout(geoTimeout);
-                                console.warn("Geolocation error:", error.message);
-                                resolve("13.0827,80.2707");
-                            },
-                            { timeout: 3000 }
-                        );
-                    } else {
-                        resolve("13.0827,80.2707");
-                    }
-                });
-
-                const response = await fetch(`/delivery-partner?currentLocation=${currentLocation}`);
+                const response = await fetch(`/delivery-partner`);
                 const data = await response.json();
 
                 if (!data || (!data.route_details && !data.detailed_points)) {
-                    document.getElementById("map").innerHTML = `<div class="alert alert-info">No deliveries found for today. Please check back later.</div>`;
+                    document.getElementById("map").innerHTML = `<div class="alert alert-info">No deliveries found for today.</div>`;
+                    initLeafletFallback();
                     return;
                 }
-
-                // Always display details if we have points
-                if (data.detailed_points) {
-                    displayDetails(data);
-                }
-
-                if (isGoogleMapsLoaded && data.route_details && data.route_details.polyline) {
-                    try {
-                        const center = (data.route_details.markers && data.route_details.markers.length > 0)
-                            ? { lat: data.route_details.markers[0].lat, lng: data.route_details.markers[0].lng }
-                            : { lat: 13.0827, lng: 80.2707 };
-
-                        map = new google.maps.Map(document.getElementById("map"), {
-                            zoom: 12,
-                            center: center,
-                        });
-
-                        const routePath = new google.maps.Polyline({
-                            path: google.maps.geometry.encoding.decodePath(data.route_details.polyline),
-                            geodesic: true,
-                            strokeColor: "#007BFF",
-                            strokeOpacity: 1.0,
-                            strokeWeight: 4,
-                        });
-                        routePath.setMap(map);
-
-                        const icons = {
-                            start: { url: "https://maps.google.com/mapfiles/ms/icons/red-dot.png", scaledSize: new google.maps.Size(40, 40) },
-                            end: { url: "https://maps.google.com/mapfiles/ms/icons/green-dot.png", scaledSize: new google.maps.Size(40, 40) },
-                            intermediate: { url: "https://maps.google.com/mapfiles/ms/icons/blue-dot.png", scaledSize: new google.maps.Size(40, 40) },
-                        };
-
-                        if (data.route_details.markers) {
-                            data.route_details.markers.forEach((marker, index) => {
-                                new google.maps.Marker({
-                                    position: { lat: marker.lat, lng: marker.lng },
-                                    map,
-                                    icon: index === 0 ? icons.start :
-                                        index === data.route_details.markers.length - 1 ? icons.end : icons.intermediate,
-                                    label: {
-                                        text: index === 0 ? "S" : index === data.route_details.markers.length - 1 ? "E" : `${index}`,
-                                        color: "white",
-                                        fontSize: "14px",
-                                        fontWeight: "bold",
-                                    },
-                                });
-                            });
-                        }
-                    } catch (e) {
-                        console.error("Google Maps display failed:", e);
-                        initLeafletFallback(data);
-                    }
-                } else {
-                    initLeafletFallback(data);
-                }
-
+                initLeafletFallback(data);
             } catch (error) {
                 console.error("Error in fetchDataAndDisplayRoute:", error);
                 document.getElementById("map").innerHTML = `<div class="alert alert-danger">An error occurred while loading delivery data.</div>`;
                 initLeafletFallback();
+            }
+        };
+
+        const fetchExistingOrders = async () => {
+            const tbody = document.getElementById("orders-table-body");
+            const errorDiv = document.getElementById("orders-error");
+            try {
+                const response = await fetch('/get_orders');
+                const orders = await response.json();
+                
+                if (orders.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="text-center">No orders found in storage.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = "";
+                orders.forEach(order => {
+                    tbody.innerHTML += `
+                        <tr>
+                            <td>${order.productId}</td>
+                            <td>${order.customerName || 'B2B Client'}</td>
+                            <td>${order.address || order.deliveryLocation}</td>
+                            <td><span class="badge ${order.status === 'In Transit' ? 'bg-success' : 'bg-primary'}">${order.status || 'Pending'}</span></td>
+                        </tr>
+                    `;
+                });
+            } catch (e) {
+                console.error("Error fetching orders:", e);
+                errorDiv.style.display = "block";
+                tbody.innerHTML = "";
             }
         };
 
@@ -269,8 +311,8 @@
                 detailsDiv.innerHTML += `
                     <div class="card">
                         <p><strong>Product ID:</strong> ${point.productId}</p>
-                        <p><strong>Estimated Time to Reach:</strong> ${point.estimated_time_reach}</p>
-                        <p><strong>Distance from Origin:</strong> ${point.distance_from_origin}</p>
+                        <p><strong>Estimated Time:</strong> ${point.estimated_time_reach}</p>
+                        <p><strong>Distance:</strong> ${point.distance_from_origin}</p>
                         <p><strong>Location:</strong> ${point.location}</p>
                     </div>`;
             });
@@ -280,17 +322,14 @@
                     <h3>Route Summary</h3>
                     <p><strong>Overall Distance:</strong> ${data.route_details.overall_distance} km</p>
                     <p><strong>Overall Time:</strong> ${data.route_details.overall_time} minutes</p>
-                    <p><strong>Overall Carbon Emission:</strong> ${data.route_details.overall_carbon_emission} kg</p>
+                    <p><strong>Overall Emissions:</strong> ${data.route_details.overall_carbon_emission} kg</p>
                 </div>`;
         }
 
-        // Trigger fetch if script load takes too long or fails
-        setTimeout(() => {
-            if (!isGoogleMapsLoaded && !leafletMap) {
-                console.warn("Google Maps load timeout. Using Leaflet.");
-                fetchDataAndDisplayRoute();
-            }
-        }, 5000);
+        window.addEventListener('DOMContentLoaded', () => {
+            fetchDataAndDisplayRoute();
+            fetchExistingOrders();
+        });
     </script>
 </body>
 

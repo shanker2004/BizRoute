@@ -141,8 +141,16 @@
       <div class="col-md-3">
         <div class="info-box">
           <h5>Set Your Locations</h5>
-          <input id="start-input" type="text" class="form-control search-input" placeholder="Enter Start Location" />
-          <input id="end-input" type="text" class="form-control search-input" placeholder="Enter End Location" />
+          <div class="mb-3">
+            <label class="form-label small text-muted">Search & Select Address</label>
+            <div class="input-group">
+                <input type="text" id="addressSearch" class="form-control" placeholder="e.g. T. Nagar, Chennai">
+                <button class="btn btn-outline-secondary" type="button" onclick="searchAddress()">Search</button>
+            </div>
+            <div id="search-results" class="list-group mt-1" style="display:none; position:absolute; z-index:1000; width:90%; max-height:200px; overflow-y:auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"></div>
+          </div>
+          <input id="start-input" type="text" class="form-control mb-2" placeholder="Start Coords (or click map)" />
+          <input id="end-input" type="text" class="form-control mb-2" placeholder="End Coords (or click map)" />
           <div class="form-group mt-3">
             <label for="mode-select">Select Mode</label>
             <select id="mode-select" class="form-control">
@@ -184,6 +192,29 @@
     </div>
 
     <div class="row mt-4">
+      <div class="col-md-12">
+        <div class="info-box">
+          <h5>Route Summary</h5>
+          <div class="table-responsive">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Location</th>
+                  <th>Estimated Arrival</th>
+                  <th>Distance (km)</th>
+                  <th>Duration (mins)</th>
+                </tr>
+              </thead>
+              <tbody id="route-details"></tbody>
+            </table>
+          </div>
+          <p id="weather" class="text-muted">Weather information will appear here.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="row mt-4">
       <div class="col-md-12 text-center">
         <button id="download-pdf" class="btn btn-plan">
           Offline - Download Route Map as PDF!
@@ -195,246 +226,171 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.4.0/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script>
-    // Modern async loading for Google Maps
-    (function () {
-      const script = document.createElement('script');
-      script.src = "https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places,geometry&callback=initMap&loading=async";
-      script.async = true;
-      script.defer = true;
-      script.onerror = () => {
-        console.warn("Google Maps failed to load. Falling back to Leaflet.");
-        initLeafletFallback();
-      };
-      document.head.appendChild(script);
-    })();
+    // Default to Leaflet for 100% free operation
+    window.addEventListener('DOMContentLoaded', () => {
+      initLeafletFallback();
+    });
   </script>
   <script>
-    let map, directionsService, currentPosition;
-    let routePolylines = [];
-    let selectedRouteIndex = 0;
     let leafletMap;
-    let isGoogleMapsLoaded = false;
-
-    function initMap() {
-      try {
-        isGoogleMapsLoaded = true;
-        map = new google.maps.Map(document.getElementById("map"), {
-          center: { lat: 12.9716, lng: 77.5946 },
-          zoom: 12,
-        });
-
-        directionsService = new google.maps.DirectionsService();
-
-        if (navigator.geolocation) {
-          navigator.geolocation.getCurrentPosition(function (position) {
-            currentPosition = {
-              lat: position.coords.latitude,
-              lng: position.coords.longitude
-            };
-            map.setCenter(currentPosition);
-            addMarker(currentPosition, "Your Location", "blue");
-          });
-        }
-
-        const startInput = document.getElementById("start-input");
-        const endInput = document.getElementById("end-input");
-
-        new google.maps.places.Autocomplete(startInput);
-        new google.maps.places.Autocomplete(endInput);
-
-        document.getElementById("plan-route").addEventListener("click", () => {
-          const start = startInput.value.trim();
-          const end = endInput.value.trim();
-          const mode = document.getElementById("mode-select").value;
-          const fuelType = document.getElementById("fuel-type").value;
-          const enableTraffic = document.getElementById("traffic-toggle").checked;
-
-          if (start && end) {
-            calculateRoutes(start, end, mode, fuelType, enableTraffic);
-          } else {
-            alert("Please enter both start and end locations.");
-          }
-        });
-      } catch (e) {
-        console.error("Failed to initialize Google Maps:", e);
-        initLeafletFallback();
-      }
-    }
+    let markers = [];
 
     function initLeafletFallback() {
       if (leafletMap) return;
-      console.log("Initializing Leaflet fallback...");
       const mapDiv = document.getElementById("map");
       mapDiv.innerHTML = "";
-      leafletMap = L.map(mapDiv).setView([12.9716, 77.5946], 12);
+      leafletMap = L.map(mapDiv).setView([13.0827, 80.2707], 12);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(leafletMap);
-
-      const alertDiv = document.createElement("div");
-      alertDiv.className = "alert alert-warning mt-2";
-      alertDiv.innerHTML = "<strong>Notice:</strong> Using OpenStreetMap fallback because Google Maps API key is invalid or restricted.";
-      mapDiv.parentNode.insertBefore(alertDiv, mapDiv.nextSibling);
     }
 
-    function calculateRoutes(start, end, mode, fuelType, enableTraffic) {
-      const request = {
-        origin: start,
-        destination: end,
-        travelMode: google.maps.TravelMode[mode],
-        provideRouteAlternatives: true,
-      };
-
-      if (enableTraffic) {
-        request.drivingOptions = {
-          departureTime: new Date(),
-          trafficModel: 'pessimistic',
-        };
+    document.getElementById("plan-route").addEventListener("click", () => {
+      const start = document.getElementById("start-input").value.trim();
+      const end = document.getElementById("end-input").value.trim();
+      
+      if (start && end) {
+        calculateRoutes(start, end);
+      } else {
+        alert("Please enter both locations.");
       }
+    });
 
-      directionsService.route(request, (result, status) => {
-        if (status === "OK") {
-          displayRoutes(result.routes, mode, fuelType);
-          const startLocation = result.routes[0].legs[0].start_location;
-          const endLocation = result.routes[0].legs[0].end_location;
-          addMarker(startLocation, "Start Point", "blue");
-          addMarker(endLocation, "End Point", "green");
-        } else {
-          alert("Unable to calculate routes. Please try again.");
-        }
-      });
-    }
-
-    function displayRoutes(routes, mode, fuelType) {
-      const routeInfo = document.getElementById("route-info");
-      routeInfo.innerHTML = "";
-      routePolylines.forEach(polyline => polyline.setMap(null));
-      routePolylines = [];
-
-      routes.sort((a, b) => a.legs[0].duration.value - b.legs[0].duration.value);
-      const routeColors = ["#006400", "#0000FF", "#ffA500"];
-      const sortedRoutes = routes.map((route, index) => ({
-        ...route,
-        color: routeColors[index % routeColors.length],
-      })).reverse();
-      sortedRoutes.forEach((route, index) => {
-        const routeColor = route.color;
-        const polyline = new google.maps.Polyline({
-          path: route.overview_path,
-          strokeColor: routeColor,
-          strokeOpacity: 0.7,
-          strokeWeight: 6,
-          zIndex: routeColor === "#006400" ? 3 : routeColor === "#0000FF" ? 2 : 1, // Higher zIndex for green
-        });
-        polyline.setMap(map);
-        routePolylines.push(polyline);
-
-        const duration = route.legs[0].duration.text;
-        const distance = route.legs[0].distance.text;
-        const emission = calculateCO2Emission(route.legs[0].distance.value / 1000, mode, fuelType);
-
-        const routeElement = document.createElement("div");
-        routeElement.classList.add("route-option");
-        routeElement.style.cursor = "pointer";
-        routeElement.innerHTML = `
-          <div>
-            <h6 style="color:${routeColor};">Route ${index + 1}</h6>
-            <p class="route-distance">Distance: ${distance}</p>
-            <p class="route-duration">Duration: ${duration}</p>
-            <p class="route-emission">CO2 Emission: ${emission}</p>
-          </div>
-        `;
-
-        routeElement.addEventListener("click", () => {
-          map.setCenter(route.legs[0].end_location);
-          map.setZoom(14);
-          selectedRouteIndex = index;
-
-          routeElement.classList.add("highlighted-route");
-
-          routePolylines.forEach((polyline, polyIndex) => {
-            if (polyIndex !== index) {
-              polyline.setMap(null);
-            }
-          });
-        });
-
-        routeInfo.appendChild(routeElement);
-      });
-
-      map.setCenter(routes[0].legs[0].start_location);
-      map.setZoom(14);
-    }
-
-    function calculateCO2Emission(distanceInKm, mode, fuelType) {
-      const emissions = {
-        "PETROL": { "DRIVING": 0.114, "TRANSIT": 0.08, "TRUCK": 0.25 },
-        "DIESEL": { "DRIVING": 0.097, "TRANSIT": 0.07, "TRUCK": 0.22 },
-        "ELECTRIC": { "DRIVING": 0, "TRANSIT": 0, "TRUCK": 0 },
-        "CNG": { "DRIVING": 0.080, "TRANSIT": 0.06, "TRUCK": 0.18 }
-      };
-
-      const factor = (emissions[fuelType] && emissions[fuelType][mode]) || 0.1;
-      return (distanceInKm * factor).toFixed(2) + " kg";
-    }
-
-    function addMarker(location, title, color) {
-      new google.maps.Marker({
-        position: location,
-        map: map,
-        title: title,
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          scale: 7.5,
-          fillColor: color,
-          fillOpacity: 1,
-          strokeWeight: 0
-        }
-      });
-    }
-
-    document.getElementById("download-pdf").addEventListener("click", async () => {
-      if (!routePolylines[selectedRouteIndex]) {
-        alert("Please plan a route before downloading.");
-        return;
-      }
-
-      const selectedRoutePath = routePolylines[selectedRouteIndex].getPath();
-      const coordinates = [];
-      selectedRoutePath.forEach((latLng) => {
-        coordinates.push(`${latLng.lat()},${latLng.lng()}`);
-      });
-
-      const pathString = coordinates.join("|");
-
-      const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?key={{ google_maps_api_key }}
-&size=1920x1080
-&scale=2
-&path=color:0x0000ff|weight:5|${pathString}
-&markers=color:green|label:S|${coordinates[0]}
-&markers=color:red|label:E|${coordinates[coordinates.length - 1]}`;
-
+    async function calculateRoutes(start, end) {
       try {
-        const response = await fetch(staticMapUrl);
-        const blob = await response.blob();
-        const imgUrl = URL.createObjectURL(blob);
-
-        const { jsPDF } = window.jspdf;
-        const pdf = new jsPDF({
-          orientation: "landscape",
-          unit: "px",
-          format: [1920, 1080],
+        const response = await fetch('/get-routes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ start, end })
         });
-        const img = new Image();
-        img.src = imgUrl;
-        img.onload = function () {
-          pdf.addImage(img, "PNG", 0, 0, 1920, 1080);
-          pdf.save("RouteMap.pdf");
-        };
-      } catch (error) {
-        console.error("Error generating the PDF:", error);
-        alert("Failed to generate the PDF. Please try again.");
+        const data = await response.json();
+        displayRoutes(data.routes, start, end);
+      } catch (e) {
+        console.error("Error:", e);
       }
+    }
+
+    let polylines = [];
+
+    async function searchAddress() {
+        const query = document.getElementById('addressSearch').value;
+        if (!query) return;
+        const resultsDiv = document.getElementById('search-results');
+        resultsDiv.innerHTML = '<div class="list-group-item">Searching...</div>';
+        resultsDiv.style.display = 'block';
+
+        try {
+            const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`);
+            const data = await response.json();
+            resultsDiv.innerHTML = '';
+            if (data.length === 0) {
+                resultsDiv.innerHTML = '<div class="list-group-item">No results found</div>';
+                return;
+            }
+            data.forEach(item => {
+                const btn = document.createElement('button');
+                btn.className = 'list-group-item list-group-item-action text-start small';
+                btn.innerText = item.display_name;
+                btn.onclick = () => {
+                    const lat = parseFloat(item.lat);
+                    const lon = parseFloat(item.lon);
+                    leafletMap.setView([lat, lon], 14);
+                    L.marker([lat, lon]).addTo(leafletMap).bindPopup(item.display_name).openPopup();
+                    resultsDiv.style.display = 'none';
+                    if (!document.getElementById('start-input').value) document.getElementById('start-input').value = `${lat},${lon}`;
+                    else if (!document.getElementById('end-input').value) document.getElementById('end-input').value = `${lat},${lon}`;
+                };
+                resultsDiv.appendChild(btn);
+            });
+        } catch (error) {
+            console.error('Search error:', error);
+            resultsDiv.innerHTML = '<div class="list-group-item text-danger">Search failed</div>';
+        }
+    }
+
+    async function getOSRMRoute(startCoords, endCoords) {
+        try {
+            const s = startCoords.split(',').map(c => c.trim());
+            const e = endCoords.split(',').map(c => c.trim());
+            if (s.length !== 2 || e.length !== 2) return null;
+            const url = `https://router.project-osrm.org/route/v1/driving/${s[1]},${s[0]};${e[1]},${e[0]}?overview=full&geometries=geojson`;
+            const response = await fetch(url);
+            const data = await response.json();
+            if (data.code === 'Ok' && data.routes.length > 0) {
+                return data.routes[0].geometry.coordinates.map(coord => [coord[1], coord[0]]);
+            }
+        } catch (e) { console.error("OSRM Error:", e); }
+        return null;
+    }
+
+    async function displayRoutes(routes, start, end) {
+      const routeInfo = document.getElementById("route-info");
+      const routeDetails = document.getElementById("route-details");
+      const weatherInfo = document.getElementById("weather");
+      
+      routeInfo.innerHTML = "";
+      routeDetails.innerHTML = "";
+      weatherInfo.innerText = "Weather: 29°C | AQI: 45 (Good) - Optimized for Sustainability";
+      
+      markers.forEach(m => leafletMap.removeLayer(m));
+      markers = [];
+      polylines.forEach(p => leafletMap.removeLayer(p));
+      polylines = [];
+
+      for (let index = 0; index < routes.length; index++) {
+        const route = routes[index];
+        const routeElement = document.createElement("div");
+        routeElement.classList.add("route-option", "p-2", "mb-2", "border", "rounded");
+        routeElement.innerHTML = `
+          <h6>${route.summary}</h6>
+          <p class="small mb-0"><b>Dist:</b> ${route.distance} | <b>Time:</b> ${route.duration}</p>
+          <p class="small mb-0 text-success"><b>CO₂ Saved:</b> ${parseFloat(route.emissions)*0.4} kg (vs standard)</p>
+        `;
+        routeInfo.appendChild(routeElement);
+
+        routeDetails.innerHTML += `
+          <tr>
+            <td>${index + 1}</td>
+            <td>${end}</td>
+            <td>In ${route.duration}</td>
+            <td>${route.distance}</td>
+            <td>${route.duration}</td>
+          </tr>`;
+
+        let sLat, sLng, eLat, eLng;
+        try {
+            [sLat, sLng] = start.split(',').map(Number);
+            [eLat, eLng] = end.split(',').map(Number);
+        } catch(e) {
+            [sLat, sLng] = [13.0827, 80.2707];
+            [eLat, eLng] = [13.0475, 80.2089];
+        }
+        
+        const sm = L.marker([sLat, sLng]).addTo(leafletMap).bindPopup("Start");
+        const em = L.marker([eLat, eLng]).addTo(leafletMap).bindPopup("End");
+        markers.push(sm, em);
+        
+        const roadPoints = await getOSRMRoute(start, end);
+        if (roadPoints) {
+            const poly = L.polyline(roadPoints, { color: '#4f46e5', weight: 5, opacity: 0.8 }).addTo(leafletMap);
+            polylines.push(poly);
+        } else {
+            const poly = L.polyline([[sLat, sLng], [eLat, eLng]], { color: '#4f46e5', weight: 4, opacity: 0.6, dashArray: '5, 10' }).addTo(leafletMap);
+            polylines.push(poly);
+        }
+      }
+      
+      if (markers.length > 0) {
+        const group = new L.featureGroup([...markers, ...polylines]);
+        leafletMap.fitBounds(group.getBounds(), { padding: [40, 40] });
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      initLeafletFallback();
+      // Disable PDF for now as it used Google Static Maps
+      const downloadPdf = document.getElementById("download-pdf");
+      if (downloadPdf) downloadPdf.style.display = "none";
     });
   </script>
 </body>

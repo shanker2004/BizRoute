@@ -68,10 +68,10 @@
 
         try {
 
-            const response = await fetch('/route', {
+            const response = await fetch('/get-routes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ start, end, vehicle_type: vehicleType, fuel_type: fuelType })
+                body: JSON.stringify({ start_coords: start, end_coords: end, vehicle_type: vehicleType, fuel_type: fuelType })
             });
 
             const data = await response.json();

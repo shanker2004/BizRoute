@@ -77,43 +77,59 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
     <script>
-        $('#packageLoadForm').on('submit', function (e) {
+        document.getElementById('packageLoadForm').addEventListener('submit', async function (e) {
             e.preventDefault();
 
-            const vehicleCapacity = $('#vehicle_capacity').val();
-            const packageWeight = $('#package_weight').val();
-            const numPackages = $('#num_packages').val();
+            const vehicleCapacity = document.getElementById('vehicle_capacity').value;
+            const packageWeight = document.getElementById('package_weight').val; // Wait, val() in jQuery, value in JS
+            const numPackages = document.getElementById('num_packages').value;
+            const loadDetails = document.getElementById('loadDetails');
+            const errorDiv = document.getElementById('error');
 
-            if (!vehicleCapacity || !packageWeight || !numPackages) {
-                $('#error').text('All fields are required').show();
+            // Correcting previous thought: .value for all inputs
+            const vCap = document.getElementById('vehicle_capacity').value;
+            const pWeight = document.getElementById('package_weight').value;
+            const nPack = document.getElementById('num_packages').value;
+
+            if (!vCap || !pWeight || !nPack) {
+                errorDiv.innerText = 'All fields are required';
+                errorDiv.style.display = 'block';
                 return;
             }
-            $('#error').hide();
+            errorDiv.style.display = 'none';
 
-            $.ajax({
-                type: 'POST',
-                url: '/package_load',
-                contentType: 'application/json',
-                data: JSON.stringify({
-                    vehicle_capacity: vehicleCapacity,
-                    package_weight: packageWeight,
-                    num_packages: numPackages
-                }),
-                success: function (response) {
-                    const { required_vehicles, packages_per_vehicle } = response;
-
-                    $('#loadDetails').html(`
-                        <p><strong>Required Vehicles:</strong> ${required_vehicles}</p>
-                        <p><strong>Packages per Vehicle:</strong> ${packages_per_vehicle}</p>
-                    `).show();
-                },
-                error: function (response) {
-                    $('#error').text(response.responseJSON.error).show();
-                    $('#loadDetails').hide();
+            try {
+                const response = await fetch('/package_load', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        vehicle_capacity: vCap,
+                        package_weight: pWeight,
+                        num_packages: nPack
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    loadDetails.innerHTML = `
+                        <p><strong>Required Vehicles:</strong> ${data.required_vehicles}</p>
+                        <p><strong>Packages per Vehicle:</strong> ${data.packages_per_vehicle}</p>
+                    `;
+                    loadDetails.style.display = 'block';
+                    errorDiv.style.display = 'none';
+                } else {
+                    errorDiv.innerText = data.error || 'An error occurred';
+                    errorDiv.style.display = 'block';
+                    loadDetails.style.display = 'none';
                 }
-            });
+            } catch (error) {
+                console.error('Error:', error);
+                errorDiv.innerText = 'Failed to connect to server';
+                errorDiv.style.display = 'block';
+                loadDetails.style.display = 'none';
+            }
         });
     </script>
 </body>
