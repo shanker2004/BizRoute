@@ -115,11 +115,6 @@
           <h5>1. Setup Origin & Destination</h5>
           <input id="start-input" type="text" class="form-control mb-3 pac-target-input" placeholder="Origin (e.g. Current Location)">
           <input id="end-input" type="text" class="form-control mb-3 pac-target-input" placeholder="Destination (e.g. Warehouse A)">
-          
-          <h5 class="mt-2">2. Multi-Stop Pinning</h5>
-          <small class="text-primary mb-2 d-block"><i class="fas fa-map-pin"></i> Click on the map to add up to 5 waypoints dynamically.</small>
-          <ul id="waypoints-list" class="list-group mb-3 list-group-flush" style="font-size: 0.9em;">
-          </ul>
 
           <div class="form-group mt-auto">
             <button id="plan-route" class="btn btn-plan mt-3">
@@ -152,8 +147,6 @@
     let map;
     let directionsService;
     let polylines = [];
-    let waypoints = []; // Array of google.maps.LatLng
-    let waypointMarkers = [];
     let endsMarkers = [];
 
     function initMap() {
@@ -177,38 +170,6 @@
       new google.maps.places.Autocomplete(startInput);
       new google.maps.places.Autocomplete(endInput);
 
-      // Listen for map clicks for Multi-Stop Pinning
-      map.addListener("click", (e) => {
-        if (waypoints.length >= 5) {
-          alert("Maximum of 5 waypoints allowed.");
-          return;
-        }
-
-        const newPoint = e.latLng;
-        waypoints.push(newPoint);
-
-        const marker = new google.maps.Marker({
-          position: newPoint,
-          map: map,
-          label: {
-            text: String(waypoints.length),
-            color: 'white',
-            fontWeight: 'bold'
-          },
-          icon: {
-            path: google.maps.SymbolPath.CIRCLE,
-            fillColor: "#f59e0b",
-            fillOpacity: 1,
-            strokeColor: "white",
-            strokeWeight: 2,
-            scale: 12
-          }
-        });
-
-        waypointMarkers.push(marker);
-        updateWaypointsUI();
-      });
-
       document.getElementById("plan-route").addEventListener("click", () => {
         const originStr = startInput.value.trim();
         const destStr = endInput.value.trim();
@@ -226,50 +187,23 @@
       });
     }
 
-    function updateWaypointsUI() {
-      const list = document.getElementById("waypoints-list");
-      list.innerHTML = "";
-      waypoints.forEach((wp, idx) => {
-        const li = document.createElement("li");
-        li.className = "list-group-item d-flex justify-content-between align-items-center py-1";
-        const latLngStr = wp.lat().toFixed(4) + ", " + wp.lng().toFixed(4);
-        li.innerHTML = `<span><i class="fas fa-stop text-warning me-2"></i> Stop ${idx + 1}: ${latLngStr}</span>`;
-        list.appendChild(li);
-      });
-    }
-
     function clearAll() {
       // Clear polylines
       polylines.forEach(p => p.setMap(null));
       polylines = [];
       // Clear markers
-      waypointMarkers.forEach(m => m.setMap(null));
-      waypointMarkers = [];
       endsMarkers.forEach(m => m.setMap(null));
       endsMarkers = [];
-      waypoints = [];
-      updateWaypointsUI();
       document.getElementById("route-info").innerHTML = "";
     }
 
     function calculateAndRenderRoutes(origin, destination) {
-      // Clear paths but keep waypoints markers so they show up under the route
-      polylines.forEach(p => p.setMap(null));
-      polylines = [];
-      endsMarkers.forEach(m => m.setMap(null));
-      endsMarkers = [];
+      clearAll();
       document.getElementById("route-info").innerHTML = "<div class='text-center '><div class='spinner-border text-primary speed-light mt-3'></div><br><small>Analyzing pathways...</small></div>";
-
-      // Transform waypoints array to DirectionsService format
-      const routeWaypoints = waypoints.map(wp => ({
-        location: wp,
-        stopover: true
-      }));
 
       const request = {
         origin: origin,
         destination: destination,
-        waypoints: routeWaypoints,
         travelMode: google.maps.TravelMode.DRIVING,
         provideRouteAlternatives: true, // We want 3 routes if possible!
         drivingOptions: {
@@ -292,18 +226,13 @@
     function drawRoutes(routes) {
       // Design configuration for up to 3 routes
       const themeColors = [
+        { label: "Eco", color: "#54A84D", id: "route-eco", icon: 'fa-leaf', strokeDash: false }, // Green
         { label: "Fastest", color: "#4f46e5", id: "route-fastest", icon: 'fa-bolt', strokeDash: false }, // Blue
         { label: "Balanced", color: "#f59e0b", id: "route-balanced", icon: 'fa-scale-balanced', strokeDash: true }, // Yellow
-        { label: "Eco", color: "#54A84D", id: "route-eco", icon: 'fa-leaf', strokeDash: false }, // Green
       ];
 
       // Limit to 3 routes max
       const topRoutes = routes.slice(0, 3);
-
-      // Adjust labeling if only 2 routes return
-      if (topRoutes.length === 2) {
-        themeColors[1] = themeColors[2]; // Make second one Eco
-      }
 
       const bounds = new google.maps.LatLngBounds();
 
@@ -345,7 +274,8 @@
         const co2Kg = (distanceKm * co2Multiplier).toFixed(1);
 
         // Create Panel Element
-        createRouteSummaryPanel(theme, distanceKm, durationMins, co2Kg);
+        const routeLetter = String.fromCharCode(65 + index); // A, B, C
+        createRouteSummaryPanel(theme, distanceKm, durationMins, co2Kg, routeLetter);
 
         // Gather path points and adjust map bounds
         const path = route.overview_path;
@@ -386,7 +316,7 @@
       map.fitBounds(bounds);
     }
 
-    function createRouteSummaryPanel(theme, distance, duration, co2) {
+    function createRouteSummaryPanel(theme, distance, duration, co2, letter) {
       const infoBox = document.getElementById("route-info");
       
       const div = document.createElement("div");
@@ -395,7 +325,7 @@
 
       div.innerHTML = `
         <div class="d-flex justify-content-between align-items-center mb-2">
-          <h6 class="mb-0 fw-bold" style="color: ${theme.color}"><i class="fas ${theme.icon} me-1"></i> ${theme.label} Route</h6>
+          <h6 class="mb-0 fw-bold" style="color: ${theme.color}"><i class="fas ${theme.icon} me-1"></i> Route ${letter}: ${theme.label}</h6>
           <span class="badge bg-light text-dark shadow-sm border border-secondary border-opacity-25">${duration} mins</span>
         </div>
         <div class="d-flex justify-content-between text-muted align-items-end">

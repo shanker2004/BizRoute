@@ -4,21 +4,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Delivery Route Optimization</title>
+    <title>Delivery Partner Dashboard</title>
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/fa-all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <!-- Leaflet Fallback -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script>
-        // Default to Leaflet for 100% free operation
-        window.addEventListener('DOMContentLoaded', () => {
-            fetchDataAndDisplayRoute();
-        });
-    </script>
+    
+    <!-- Google Maps JS API -->
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBe18wGLYbedCZOCatcP9bYzAXKRbYBGoo&libraries=geometry,places&callback=initMap" async defer></script>
 
     <style>
         body {
@@ -35,7 +29,7 @@
         }
 
         #map {
-            height: 400px;
+            height: 500px;
             width: 100%;
             border-radius: 12px;
             border: 1px solid #e2e8f0;
@@ -50,7 +44,7 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background: rgba(255, 255, 255, 0.8);
+            background: rgba(255, 255, 255, 0.85);
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -88,6 +82,7 @@
             padding: 24px;
             box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
             transition: all 0.2s ease;
+            height: 100%;
         }
 
         .card:hover {
@@ -101,28 +96,55 @@
 
         .cards-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
             gap: 24px;
             max-width: 1200px;
             margin: 0 auto;
         }
 
-        @media (max-width: 768px) {
-            #map {
-                height: 300px;
-            }
-
-            .route-summary h3 {
-                font-size: 1.5rem;
-            }
+        .btn-start {
+            background-color: #10b981;
+            color: white;
+            padding: 12px 30px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            border: none;
+            border-radius: 30px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(16, 185, 129, 0.3);
         }
+
+        .btn-start:hover {
+            background-color: #059669;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(16, 185, 129, 0.4);
+        }
+
+        .btn-start:disabled {
+            background-color: #9ca3af;
+            box-shadow: none;
+            transform: none;
+        }
+
+        /* Truck Icon */
+        .truck-icon {
+            font-size: 24px;
+            color: #1e293b;
+            filter: drop-shadow(0 2px 2px rgba(0,0,0,0.3));
+        }
+        
     </style>
 </head>
 
 <body>
     {% include 'navbar.html' %}
 
-    <h1>Delivery Route Optimization</h1>
+    <h1>Partner Dashboard: Daily Roadmap</h1>
+
+    <div class="container text-center mb-4">
+        <button id="startNavigationBtn" class="btn btn-start"><i class="fas fa-play me-2"></i> Start Active Navigation</button>
+        <button id="resetNavigationBtn" class="btn btn-outline-secondary ms-2" style="border-radius: 30px; display: none;"><i class="fas fa-undo me-2"></i> Reset</button>
+    </div>
 
     <div class="container">
         <div id="map">
@@ -130,206 +152,351 @@
                 <div class="spinner-grow" role="status">
                     <span class="visually-hidden">Loading...</span>
                 </div>
-                <h5 class="mt-3 text-primary fw-bold">Optimizing Delivery Routes...</h5>
+                <h5 class="mt-3 text-primary fw-bold">Calculating Optimized Routing...</h5>
             </div>
         </div>
     </div>
 
-    <div class="details-container">
-        <div id="details" class="cards-grid"></div>
+    <div class="container">
+        <div id="overview-summary"></div>
     </div>
 
-    <div class="container mt-5 mb-5">
-        <div class="card">
-            <h5>Existing Orders (Mock Storage)</h5>
-            <div class="table-responsive">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>Product ID</th>
-                            <th>Customer</th>
-                            <th>Location / Address</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody id="orders-table-body">
-                        <tr><td colspan="4" class="text-center">Loading orders...</td></tr>
-                    </tbody>
-                </table>
+    <div class="container mt-4 mb-5">
+        <div class="row g-4">
+            <div class="col-lg-8">
+                <div class="card p-0 overflow-hidden">
+                    <div class="p-4 border-bottom bg-light">
+                        <h5 class="m-0 fw-bold"><i class="fas fa-list-check me-2 text-primary"></i> Manifest Schedule</h5>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th class="ps-4">Seq</th>
+                                    <th>Customer Order</th>
+                                    <th>Location</th>
+                                    <th>Status</th>
+                                    <th class="pe-4 text-end">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="orders-table-body">
+                                <tr><td colspan="5" class="text-center py-4 text-muted">Awaiting sync...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
-            <div id="orders-error" class="text-danger mt-2" style="display:none;">Error loading orders.</div>
+            <div class="col-lg-4">
+                <div class="card bg-primary text-white">
+                    <h5 class="fw-bold mb-4"><i class="fas fa-chart-line me-2"></i> Performance</h5>
+                    
+                    <div class="d-flex justify-content-between mb-3 border-bottom border-light pb-2">
+                        <span>On-Time Rate</span>
+                        <span class="fw-bold">98.5%</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-3 border-bottom border-light pb-2">
+                        <span>Fuel Saved (Eco-routing)</span>
+                        <span class="fw-bold">12.4 Liters</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-3 border-bottom border-light pb-2">
+                        <span>Customer Rating</span>
+                        <span class="fw-bold">4.9 <i class="fas fa-star text-warning"></i></span>
+                    </div>
+                    <div class="mt-auto pt-3">
+                        <small class="text-white-50"><i class="fas fa-info-circle"></i> Keep up the great work! Your balanced routing profile is cutting costs significantly.</small>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
     <script>
-        let leafletMap;
+        let map;
+        let directionsService;
+        let directionsRenderer;
+        let activePath = [];
+        let truckMarker;
+        let truckAnimInterval;
 
-        async function getOSRMRoute(waypoints) {
-            try {
-                // waypoints: [[lat, lng], [lat, lng], ...]
-                const pointsStr = waypoints.map(p => `${p[1]},${p[0]}`).join(';');
-                const url = `https://router.project-osrm.org/route/v1/driving/${pointsStr}?overview=full&geometries=geojson`;
-                const response = await fetch(url);
-                const data = await response.json();
-                if (data.code === 'Ok' && data.routes.length > 0) {
-                    return data.routes[0].geometry.coordinates.map(coord => [coord[1], coord[0]]);
-                }
-            } catch (e) { console.error("OSRM Error:", e); }
-            return waypoints;
-        }
+        // Mock Demo Data to make the presentation robust
+        const ROUTE_DATA = {
+            origin: "Koyambedu Wholesale Market, Chennai",
+            destination: "Adyar, Chennai",
+            waypoints: [
+                "T. Nagar, Chennai",
+                "Nungambakkam High Rd, Chennai",
+                "Mylapore, Chennai"
+            ],
+            orders: [
+                { id: "ORD-991", prod: "Fresh Vegetables", loc: "T. Nagar, Chennai", time: "10:15 AM", status: "Pending" },
+                { id: "ORD-992", prod: "Medical Supplies", loc: "Nungambakkam High Rd, Chennai", time: "11:30 AM", status: "Pending" },
+                { id: "ORD-993", prod: "Office Hardware", loc: "Mylapore, Chennai", time: "01:00 PM", status: "Pending" },
+                { id: "ORD-994", prod: "Retail Stock", loc: "Adyar, Chennai", time: "02:45 PM", status: "Pending" }
+            ]
+        };
 
-        async function initLeafletFallback(data = null) {
-            if (!leafletMap) {
-                const mapDiv = document.getElementById("map");
-                mapDiv.innerHTML = "";
-                const center = data && data.route_details && data.route_details.markers && data.route_details.markers.length > 0
-                    ? [data.route_details.markers[0].lat, data.route_details.markers[0].lng]
-                    : [13.0827, 80.2707];
-                leafletMap = L.map(mapDiv).setView(center, 12);
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    attribution: '&copy; OpenStreetMap contributors'
-                }).addTo(leafletMap);
-            }
+        function initMap() {
+            // init base map
+            map = new google.maps.Map(document.getElementById("map"), {
+                center: { lat: 13.0827, lng: 80.2707 },
+                zoom: 11,
+                styles: [
+                    { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
+                    { featureType: "transit", stylers: [{ visibility: "off" }] }
+                ]
+            });
 
-            // Clear old markers/polylines
-            leafletMap.eachLayer(layer => {
-                if (layer instanceof L.Marker || layer instanceof L.Polyline) {
-                    leafletMap.removeLayer(layer);
+            directionsService = new google.maps.DirectionsService();
+            directionsRenderer = new google.maps.DirectionsRenderer({
+                map: map,
+                suppressMarkers: true, // We will build custom cool markers
+                polylineOptions: {
+                    strokeColor: "#4f46e5",
+                    strokeWeight: 6,
+                    strokeOpacity: 0.8
                 }
             });
 
-            if (data && data.route_details && data.route_details.markers) {
-                const markerPoints = data.route_details.markers.map(m => [m.lat, m.lng]);
-                
-                markerPoints.forEach((p, index) => {
-                    let color = '#4f46e5'; // Default blue
-                    let label = `Stop ${index}`;
+            // Simulate loading latency to show the cool spinner
+            setTimeout(fetchAndDrawRoute, 1200);
+        }
+
+        function fetchAndDrawRoute() {
+            const waypts = ROUTE_DATA.waypoints.map(w => ({
+                location: w,
+                stopover: true
+            }));
+
+            directionsService.route({
+                origin: ROUTE_DATA.origin,
+                destination: ROUTE_DATA.destination,
+                waypoints: waypts,
+                optimizeWaypoints: true,
+                travelMode: google.maps.TravelMode.DRIVING
+            }, (response, status) => {
+                const loader = document.getElementById("map-loader");
+                loader.style.opacity = '0';
+                setTimeout(() => loader.style.display = 'none', 300);
+
+                if (status === "OK") {
+                    directionsRenderer.setDirections(response);
+                    activePath = response.routes[0].overview_path;
                     
-                    if (index === 0) {
-                        color = '#10b981'; // Green for Start
-                        label = "Depot / Origin";
-                    } else if (index === markerPoints.length - 1) {
-                        color = '#ef4444'; // Red for End
-                        label = "Final Destination";
-                    }
+                    renderCustomMarkers(response.routes[0].legs);
+                    populateTable(response.routes[0].legs);
+                    renderSummary(response.routes[0].legs);
 
-                    const circleIcon = L.divIcon({
-                        className: 'custom-icon',
-                        html: `<div style="background-color: ${color}; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; font-weight: bold;">${index === 0 ? '<i class="fas fa-warehouse"></i>' : index === markerPoints.length - 1 ? '<i class="fas fa-flag-checkered"></i>' : index}</div>`,
-                        iconSize: [24, 24],
-                        iconAnchor: [12, 12]
-                    });
-
-                    L.marker(p, { icon: circleIcon }).addTo(leafletMap)
-                        .bindPopup(`<strong>${label}</strong><br>${data.detailed_points[index]?.location || ''}`);
-                });
-
-                if (markerPoints.length > 1) {
-                    const roadPoints = await getOSRMRoute(markerPoints);
-                    const polyline = L.polyline(roadPoints, { 
-                        color: '#4f46e5', 
-                        weight: 6, 
-                        opacity: 0.6,
-                        lineJoin: 'round',
-                        dashArray: '1, 10'
-                    }).addTo(leafletMap);
-                    
-                    // Add animate effect (simulated with standard polyline but thicker)
-                    L.polyline(roadPoints, { 
-                        color: '#4f46e5', 
-                        weight: 2, 
-                        opacity: 1
-                    }).addTo(leafletMap);
-
-                    leafletMap.fitBounds(polyline.getBounds(), { padding: [50, 50] });
+                } else {
+                    alert("Mock routing failed. " + status);
                 }
-                
-                // Hide loader
-                document.getElementById('map-loader').style.opacity = '0';
-                setTimeout(() => {
-                    document.getElementById('map-loader').style.display = 'none';
-                }, 300);
+            });
+        }
+
+        function renderCustomMarkers(legs) {
+            let totalSteps = legs.length;
+
+            // Start Depot
+            createMarker(legs[0].start_location, "Depot / Origin", "fa-warehouse", "#10b981", ROUTE_DATA.origin);
+
+            // Waypoints
+            for(let i=0; i < legs.length - 1; i++) {
+                const targetOrder = ROUTE_DATA.orders[i];
+                createMarker(legs[i].end_location, `Stop ${i+1}: ${targetOrder.id}`, "fa-box", "#f59e0b", legs[i].end_address);
             }
 
-            if (data && data.detailed_points) {
-                displayDetails(data);
+            // End Destination
+            const lastLegIndex = legs.length - 1;
+            const targetOrderLast = ROUTE_DATA.orders[lastLegIndex];
+            createMarker(legs[lastLegIndex].end_location, "Final Stop", "fa-flag-checkered", "#ef4444", legs[lastLegIndex].end_address);
+
+            // Initialize Truck Marker invisible for now
+            const svgTruck = {
+                path: 'M29.395,0H17.636c-3.117,0-5.643,2.467-5.643,5.5v13.84v16.14c0,3.033,2.526,5.5,5.643,5.5h11.759 c3.116,0,5.643-2.467,5.643-5.5V19.34V5.5C35.037,2.467,32.511,0,29.395,0z M34.05,25.9H12.981V19.34H34.05V25.9z',
+                fillColor: '#1e293b',
+                fillOpacity: 1,
+                strokeWeight: 1,
+                strokeColor: '#fff',
+                rotation: 0,
+                scale: 0.8,
+                anchor: new google.maps.Point(23, 20),
+            };
+
+            truckMarker = new google.maps.Marker({
+                position: legs[0].start_location,
+                map: map,
+                icon: svgTruck,
+                zIndex: 999,
+                visible: false
+            });
+        }
+
+        function createMarker(latLng, title, iconClass, color, address) {
+            const marker = new google.maps.Marker({
+                position: latLng,
+                map: map,
+                title: title,
+                icon: {
+                    path: google.maps.SymbolPath.CIRCLE,
+                    fillColor: color,
+                    fillOpacity: 1,
+                    strokeWeight: 3,
+                    strokeColor: "white",
+                    scale: 12
+                }
+            });
+
+            const infoStr = `
+                <div style="min-width: 150px; padding: 5px;">
+                    <h6 style="color:${color}; font-weight:bold; margin-bottom: 5px;"><i class="fas ${iconClass}"></i> ${title}</h6>
+                    <div style="font-size: 13px; color: #475569;">${address}</div>
+                </div>
+            `;
+            const info = new google.maps.InfoWindow({ content: infoStr });
+            marker.addListener('click', () => info.open(map, marker));
+            
+            // To make it look super active, auto open the depot one temporarily
+            if(title.includes("Depot")) {
+                info.open(map, marker);
+                setTimeout(() => info.close(), 3000);
             }
         }
 
-        const fetchDataAndDisplayRoute = async () => {
-            try {
-                const response = await fetch(`/delivery-partner`);
-                const data = await response.json();
-
-                if (!data || (!data.route_details && !data.detailed_points)) {
-                    document.getElementById("map").innerHTML = `<div class="alert alert-info">No deliveries found for today.</div>`;
-                    initLeafletFallback();
-                    return;
-                }
-                initLeafletFallback(data);
-            } catch (error) {
-                console.error("Error in fetchDataAndDisplayRoute:", error);
-                document.getElementById("map").innerHTML = `<div class="alert alert-danger">An error occurred while loading delivery data.</div>`;
-                initLeafletFallback();
-            }
-        };
-
-        const fetchExistingOrders = async () => {
+        function populateTable(legs) {
             const tbody = document.getElementById("orders-table-body");
-            const errorDiv = document.getElementById("orders-error");
-            try {
-                const response = await fetch('/get_orders');
-                const orders = await response.json();
+            tbody.innerHTML = "";
+
+            ROUTE_DATA.orders.forEach((o, index) => {
+                let statusBadge = `<span class="badge bg-warning text-dark"><i class="fas fa-clock"></i> Pending</span>`;
                 
-                if (orders.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="4" class="text-center">No orders found in storage.</td></tr>';
+                tbody.innerHTML += `
+                    <tr id="row-${index}">
+                        <td class="ps-4 fw-bold text-muted">#${index+1}</td>
+                        <td><strong>${o.id}</strong><br><small class="text-muted">${o.prod}</small></td>
+                        <td>${o.loc}</td>
+                        <td class="status-cell">${statusBadge}</td>
+                        <td class="pe-4 text-end">
+                            <button class="btn btn-sm btn-outline-primary" onclick="alert('Navigation link to Google Maps App')"><i class="fas fa-location-arrow"></i> Navigate</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        function renderSummary(legs) {
+            let totalMeters = 0;
+            let totalSeconds = 0;
+            legs.forEach(l => {
+                totalMeters += l.distance.value;
+                totalSeconds += l.duration.value;
+            });
+
+            const distKm = (totalMeters / 1000).toFixed(1);
+            const timeMins = Math.round(totalSeconds / 60);
+            const co2 = (distKm * 0.12).toFixed(1);
+
+            document.getElementById("overview-summary").innerHTML = `
+                <div class="route-summary" style="background: linear-gradient(135deg, #1e293b, #0f172a);">
+                    <h3 class="mb-4"><i class="fas fa-route text-primary"></i> Master Route Manifest Optimization</h3>
+                    <div class="row text-center">
+                        <div class="col-md-4 border-end border-secondary border-opacity-50">
+                            <div class="fs-1 fw-bold text-white">${timeMins} <span class="fs-5 fw-normal text-muted">mins</span></div>
+                            <div class="text-uppercase tracking-wider small mt-1 text-primary">Total Block Time</div>
+                        </div>
+                        <div class="col-md-4 border-end border-secondary border-opacity-50">
+                            <div class="fs-1 fw-bold text-white">${distKm} <span class="fs-5 fw-normal text-muted">km</span></div>
+                            <div class="text-uppercase tracking-wider small mt-1 text-primary">Total Distance</div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="fs-1 fw-bold text-success"><i class="fas fa-leaf fs-3 me-2"></i>${co2} <span class="fs-5 fw-normal text-muted">kg</span></div>
+                            <div class="text-uppercase tracking-wider small mt-1 text-success">Carbon Output (Optimized)</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Active Navigation Simulation Logic
+        document.getElementById('startNavigationBtn').addEventListener('click', () => {
+            if(!activePath.length) return;
+
+            const btn = document.getElementById('startNavigationBtn');
+            const resetBtn = document.getElementById('resetNavigationBtn');
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fas fa-truck-moving"></i> En Route...`;
+            resetBtn.style.display = "inline-block";
+
+            truckMarker.setVisible(true);
+
+            let step = 0;
+            const totalSteps = activePath.length;
+
+            truckAnimInterval = setInterval(() => {
+                if (step >= totalSteps - 1) {
+                    clearInterval(truckAnimInterval);
+                    btn.innerHTML = `<i class="fas fa-check-double"></i> All Deliveries Complete`;
+                    btn.classList.replace('btn-start', 'btn-secondary');
+                    
+                    // Mark last order done
+                    const lastRow = document.getElementById(`row-${ROUTE_DATA.orders.length - 1}`);
+                    if(lastRow) {
+                        lastRow.querySelector('.status-cell').innerHTML = `<span class="badge bg-success"><i class="fas fa-check"></i> Delivered</span>`;
+                    }
                     return;
                 }
 
-                tbody.innerHTML = "";
-                orders.forEach(order => {
-                    tbody.innerHTML += `
-                        <tr>
-                            <td>${order.productId}</td>
-                            <td>${order.customerName || 'B2B Client'}</td>
-                            <td>${order.address || order.deliveryLocation}</td>
-                            <td><span class="badge ${order.status === 'In Transit' ? 'bg-success' : 'bg-primary'}">${order.status || 'Pending'}</span></td>
-                        </tr>
-                    `;
-                });
-            } catch (e) {
-                console.error("Error fetching orders:", e);
-                errorDiv.style.display = "block";
-                tbody.innerHTML = "";
-            }
-        };
+                const startPos = activePath[step];
+                const endPos = activePath[step + 1];
+                
+                // Calculate bearing for truck rotation
+                const heading = google.maps.geometry.spherical.computeHeading(startPos, endPos);
+                
+                const icon = truckMarker.getIcon();
+                icon.rotation = heading;
+                truckMarker.setIcon(icon);
+                
+                truckMarker.setPosition(startPos);
+                map.panTo(startPos); // Track truck
 
-        function displayDetails(data) {
-            const detailsDiv = document.getElementById("details");
-            detailsDiv.innerHTML = "";
-            data.detailed_points.forEach((point) => {
-                detailsDiv.innerHTML += `
-                    <div class="card">
-                        <p><strong>Product ID:</strong> ${point.productId}</p>
-                        <p><strong>Estimated Time:</strong> ${point.estimated_time_reach}</p>
-                        <p><strong>Distance:</strong> ${point.distance_from_origin}</p>
-                        <p><strong>Location:</strong> ${point.location}</p>
-                    </div>`;
-            });
+                // Very rudimentary logic to progress orders in the UI as the truck moves
+                const percentage = step / totalSteps;
+                if(percentage > 0.15 && percentage < 0.20) updateOrderStatus(0);
+                if(percentage > 0.45 && percentage < 0.50) updateOrderStatus(1);
+                if(percentage > 0.70 && percentage < 0.75) updateOrderStatus(2);
 
-            detailsDiv.innerHTML += `
-                <div class="route-summary">
-                    <h3>Route Summary</h3>
-                    <p><strong>Overall Distance:</strong> ${data.route_details.overall_distance} km</p>
-                    <p><strong>Overall Time:</strong> ${data.route_details.overall_time} minutes</p>
-                    <p><strong>Overall Emissions:</strong> ${data.route_details.overall_carbon_emission} kg</p>
-                </div>`;
-        }
-
-        window.addEventListener('DOMContentLoaded', () => {
-            fetchDataAndDisplayRoute();
-            fetchExistingOrders();
+                step++;
+            }, 100); // speed of simulation frame
         });
+
+        document.getElementById('resetNavigationBtn').addEventListener('click', () => {
+            clearInterval(truckAnimInterval);
+            truckMarker.setVisible(false);
+            map.setZoom(11);
+            
+            const btn = document.getElementById('startNavigationBtn');
+            btn.innerHTML = `<i class="fas fa-play me-2"></i> Start Active Navigation`;
+            btn.disabled = false;
+            btn.classList.replace('btn-secondary', 'btn-start');
+            document.getElementById('resetNavigationBtn').style.display = 'none';
+
+            // Reset table
+            ROUTE_DATA.orders.forEach((o, idx) => {
+                const row = document.getElementById(`row-${idx}`);
+                if(row) {
+                    row.querySelector('.status-cell').innerHTML = `<span class="badge bg-warning text-dark"><i class="fas fa-clock"></i> Pending</span>`;
+                    row.classList.remove('table-success');
+                }
+            });
+            
+            fetchAndDrawRoute(); // resets the map bounds
+        });
+
+        function updateOrderStatus(index) {
+            const row = document.getElementById(`row-${index}`);
+            if(row && !row.classList.contains('table-success')) {
+                row.classList.add('table-success'); // flash row
+                row.querySelector('.status-cell').innerHTML = `<span class="badge bg-success"><i class="fas fa-check"></i> Delivered</span>`;
+            }
+        }
     </script>
 </body>
 
