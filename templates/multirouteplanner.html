@@ -9,9 +9,6 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <!-- Leaflet Fallback -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         body {
             background-color: #f1f5f9;
@@ -83,6 +80,9 @@
             background-color: #f8fafc;
         }
     </style>
+
+    <!-- Google Maps API -->
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBe18wGLYbedCZOCatcP9bYzAXKRbYBGoo&libraries=places,geometry&callback=initMap" async defer></script>
 </head>
 
 <body>
@@ -96,22 +96,14 @@
                 <div class="info-card">
                     <form id="route-form">
                         <div class="mb-3">
-                            <label class="form-label small text-muted">Search & Select Address (Nominatim)</label>
-                            <div class="input-group">
-                                <input type="text" id="addressSearch" class="form-control" placeholder="Search address...">
-                                <button class="btn btn-outline-secondary" type="button" onclick="searchAddress()">Search</button>
-                            </div>
-                            <div id="search-results" class="list-group mt-1" style="display:none; position:absolute; z-index:1000; width:90%; max-height:200px; overflow-y:auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"></div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="start-location" class="form-label">Start Location (Coords):</label>
+                            <label for="start-location" class="form-label">Start Location:</label>
                             <input type="text" id="start-location" class="form-control"
-                                placeholder="Lat, Lng (or click map)" required>
+                                placeholder="Enter start location" required>
                             <button id="geolocate" type="button" class="btn btn-sm btn-link mt-2">Use My
                                 Location</button>
                         </div>
                         <div class="mb-3">
-                            <label for="destinations" class="form-label">Final Destination:</label>
+                            <label for="final-destination" class="form-label">Final Destination:</label>
                             <input type="text" id="final-destination" class="form-control"
                                 placeholder="Enter final destination" required>
                             <small id="destinationHelp" class="form-text text-muted">
@@ -129,7 +121,6 @@
                                 <option value="DRIVING">Driving</option>
                                 <option value="WALKING">Walking</option>
                                 <option value="BICYCLING">Bicycling</option>
-                                <option value="TRANSIT">Transit</option>
                             </select>
                         </div>
                         <button type="submit" class="btn btn-custom w-100" id="plan-btn">
@@ -142,10 +133,6 @@
 
             <div class="col-lg-8">
                 <div id="map"></div>
-                <div class="form-check form-switch mt-2">
-                    <input class="form-check-input" type="checkbox" id="toggle-traffic">
-                    <label class="form-check-label" for="toggle-traffic">Show Traffic</label>
-                </div>
             </div>
         </div>
 
@@ -168,194 +155,64 @@
                     <tbody id="route-details"></tbody>
                 </table>
             </div>
-            <p id="weather" class="text-muted">Weather information will appear here.</p>
         </div>
     </div>
 
     <script>
-        let leafletMap;
-        let markers = [];
-        let polylines = [];
+        let map;
+        let directionsService;
+        let directionsRenderer;
 
-        function initLeafletFallback() {
-            if (leafletMap) return;
-            const mapDiv = document.getElementById("map");
-            mapDiv.innerHTML = "";
-            leafletMap = L.map(mapDiv).setView([13.0827, 80.2707], 12);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; OpenStreetMap contributors'
-            }).addTo(leafletMap);
-            
-            // Marker Icon for start
-            const startIcon = L.divIcon({
-                className: 'custom-div-icon',
-                html: "<div style='background-color:#10b981; width:12px; height:12px; border-radius:50%; border:2px solid white;'></div>",
-                iconSize: [12, 12],
-                iconAnchor: [6, 6]
-            });
-            window.startIcon = startIcon;
-        }
-
-        async function calculateRoute(start, finalDestination, intermediateDestinations, travelMode) {
-            const btn = document.getElementById('plan-btn');
-            const btnText = document.getElementById('btn-text');
-            const btnSpinner = document.getElementById('btn-spinner');
-            
-            btn.disabled = true;
-            btnText.innerText = "Planning...";
-            btnSpinner.classList.remove('d-none');
-
-            const routesToProcess = [{ start, end: finalDestination }];
-            intermediateDestinations.forEach(dest => {
-                 routesToProcess.push({ start, end: dest });
+        function initMap() {
+            map = new google.maps.Map(document.getElementById("map"), {
+                center: { lat: 13.0827, lng: 80.2707 },
+                zoom: 12,
+                styles: [
+                  { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] } 
+                ]
             });
 
-            try {
-                const response = await fetch('/get-routes', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ routes: routesToProcess })
-                });
-                const data = await response.json();
-                
-                // Construct location coordinates for markers
-                // We'll try to use the actual coordinates if possible
-                const locCoords = [start, ...intermediateDestinations, finalDestination];
-                displayResults(data.routes, locCoords);
-            } catch (e) {
-                console.error("Error calculating routes:", e);
-            } finally {
-                btn.disabled = false;
-                btnText.innerText = "Plan My Route";
-                btnSpinner.classList.add('d-none');
-            }
-        }
-
-        async function searchAddress() {
-            const query = document.getElementById('addressSearch').value;
-            if (!query) return;
-            const resultsDiv = document.getElementById('search-results');
-            resultsDiv.innerHTML = '<div class="list-group-item">Searching...</div>';
-            resultsDiv.style.display = 'block';
-
-            try {
-                const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`);
-                const data = await response.json();
-                resultsDiv.innerHTML = '';
-                if (data.length === 0) {
-                    resultsDiv.innerHTML = '<div class="list-group-item">No results found</div>';
-                    return;
+            directionsService = new google.maps.DirectionsService();
+            directionsRenderer = new google.maps.DirectionsRenderer({
+                map: map,
+                suppressMarkers: false,
+                polylineOptions: {
+                    strokeColor: "#4f46e5",
+                    strokeWeight: 5
                 }
-                data.forEach(item => {
-                    const btn = document.createElement('button');
-                    btn.className = 'list-group-item list-group-item-action text-start small';
-                    btn.innerText = item.display_name;
-                    btn.onclick = () => {
-                        const lat = parseFloat(item.lat);
-                        const lon = parseFloat(item.lon);
-                        leafletMap.setView([lat, lon], 14);
-                        L.marker([lat, lon]).addTo(leafletMap).bindPopup(item.display_name).openPopup();
-                        resultsDiv.style.display = 'none';
-                        const coords = `${lat},${lon}`;
-                        if (!document.getElementById('start-location').value) document.getElementById('start-location').value = coords;
-                        else if (!document.getElementById('final-destination').value) document.getElementById('final-destination').value = coords;
-                        document.getElementById("addressSearch").value = item.display_name;
-                    };
-                    resultsDiv.appendChild(btn);
-                });
-            } catch (error) {
-                console.error('Search error:', error);
-                resultsDiv.innerHTML = '<div class="list-group-item text-danger">Search failed</div>';
-            }
-        }
-
-        async function getOSRMRoute(waypoints) {
-            try {
-                const pointsStr = waypoints.map(p => `${p[1]},${p[0]}`).join(';');
-                const url = `https://router.project-osrm.org/route/v1/driving/${pointsStr}?overview=full&geometries=geojson`;
-                const response = await fetch(url);
-                const data = await response.json();
-                if (data.code === 'Ok' && data.routes.length > 0) {
-                    return data.routes[0].geometry.coordinates.map(coord => [coord[1], coord[0]]);
-                }
-            } catch (e) { console.error("OSRM Error:", e); }
-            return waypoints;
-        }
-
-        async function displayResults(routes, locations) {
-            const detailsTable = document.getElementById("route-details");
-            detailsTable.innerHTML = "";
-            
-            markers.forEach(m => leafletMap.removeLayer(m));
-            markers = [];
-            polylines.forEach(p => leafletMap.removeLayer(p));
-            polylines = [];
-
-            const markerPoints = [];
-
-            routes.forEach((route, i) => {
-                const locStr = locations[i] || 'Destination';
-                const isOptimized = route.optimization_status === 'Optimized';
-                
-                detailsTable.innerHTML += `
-                    <tr>
-                        <td>${i + 1}</td>
-                        <td><small>${locStr}</small></td>
-                        <td>${route.duration}</td>
-                        <td>${route.distance}</td>
-                        <td>${route.duration}</td>
-                        <td><span class="badge bg-leaf text-success" style="background-color: #dcfce7;">${route.emissions}</span></td>
-                        <td><strong class="text-primary">${route.fuel_cost || '$0.00'}</strong></td>
-                        <td><span class="badge ${isOptimized ? 'bg-success' : 'bg-primary'}">${route.optimization_status || 'Planned'}</span></td>
-                    </tr>`;
-                
-                let lat, lng;
-                try {
-                    const parts = locStr.split(',').map(Number);
-                    if (parts.length === 2 && !isNaN(parts[0])) {
-                        lat = parts[0]; lng = parts[1];
-                    } else {
-                        // Fallback/Simulate spread if it's an address string
-                        lat = 13.0827 + (i * 0.012) + (Math.random() * 0.005);
-                        lng = 80.2707 + (i * 0.015) + (Math.random() * 0.005);
-                    }
-                } catch(e) {
-                    lat = 13.0827; lng = 80.2707;
-                }
-                
-                const coord = [lat, lng];
-                markerPoints.push(coord);
-
-                const marker = L.marker(coord).addTo(leafletMap).bindPopup(`Stop ${i + 1}: ${locStr}`);
-                markers.push(marker);
             });
 
-            // Add the final destination marker if it exists and hasn't been added
-            if (locations.length > routes.length) {
-                const finalLoc = locations[locations.length - 1];
-                let fLat, fLng;
-                try {
-                    const fParts = finalLoc.split(',').map(Number);
-                    if (fParts.length === 2 && !isNaN(fParts[0])) { fLat = fParts[0]; fLng = fParts[1]; }
-                    else { fLat = 13.0827; fLng = 80.2707; }
-                } catch(e) { fLat = 13.0827; fLng = 80.2707; }
-                
-                const fCoord = [fLat, fLng];
-                markerPoints.push(fCoord);
-                const fMarker = L.marker(fCoord).addTo(leafletMap).bindPopup(`Final Destination: ${finalLoc}`);
-                markers.push(fMarker);
-            }
+            // Autocomplete inputs
+            new google.maps.places.Autocomplete(document.getElementById("start-location"));
+            new google.maps.places.Autocomplete(document.getElementById("final-destination"));
 
-            if (markerPoints.length > 1) {
-                const roadPoints = await getOSRMRoute(markerPoints);
-                const poly = L.polyline(roadPoints, { color: '#4f46e5', weight: 5, opacity: 0.8 }).addTo(leafletMap);
-                polylines.push(poly);
-                leafletMap.fitBounds(poly.getBounds(), { padding: [40, 40] });
-            }
-        }
-
-        document.addEventListener("DOMContentLoaded", () => {
-            initLeafletFallback();
+            // Handle Geolocation matching frontend button "Use My Location"
+            document.getElementById("geolocate").addEventListener("click", () => {
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                            const pos = {
+                                lat: position.coords.latitude,
+                                lng: position.coords.longitude,
+                            };
+                            map.setCenter(pos);
+                            map.setZoom(14);
+                            // Reverse geocode to get an address string for the input
+                            const geocoder = new google.maps.Geocoder();
+                            geocoder.geocode({ location: pos }, (results, status) => {
+                                if (status === "OK" && results[0]) {
+                                    document.getElementById("start-location").value = results[0].formatted_address;
+                                } else {
+                                    document.getElementById("start-location").value = `${pos.lat}, ${pos.lng}`;
+                                }
+                            });
+                        },
+                        () => {
+                            alert("Geolocation failed or denied.");
+                        }
+                    );
+                }
+            });
 
             const routeForm = document.getElementById("route-form");
             routeForm.addEventListener("submit", function (event) {
@@ -368,7 +225,73 @@
 
                 calculateRoute(start, finalDestination, intermediateDestinations, travelMode);
             });
-        });
+        }
+
+        async function calculateRoute(start, finalDestination, intermediateDestinations, travelMode) {
+            const btn = document.getElementById('plan-btn');
+            const btnText = document.getElementById('btn-text');
+            const btnSpinner = document.getElementById('btn-spinner');
+            
+            btn.disabled = true;
+            btnText.innerText = "Planning...";
+            btnSpinner.classList.remove('d-none');
+
+            const waypoints = intermediateDestinations.map(dest => ({
+                location: dest,
+                stopover: true
+            }));
+
+            const request = {
+                origin: start,
+                destination: finalDestination,
+                waypoints: waypoints,
+                optimizeWaypoints: true,
+                travelMode: google.maps.TravelMode[travelMode]
+            };
+
+            directionsService.route(request, (result, status) => {
+                btn.disabled = false;
+                btnText.innerText = "Plan My Route";
+                btnSpinner.classList.add('d-none');
+
+                if (status === "OK") {
+                    directionsRenderer.setDirections(result);
+                    displaySummary(result);
+                } else {
+                    alert("Route calculation failed: " + status);
+                }
+            });
+        }
+
+        function displaySummary(result) {
+            const detailsTable = document.getElementById("route-details");
+            detailsTable.innerHTML = "";
+
+            const route = result.routes[0];
+            let totalDist = 0;
+            let totalDur = 0;
+
+            route.legs.forEach((leg, i) => {
+                const distKm = (leg.distance.value / 1000).toFixed(1);
+                const durMin = Math.round(leg.duration.value / 60);
+                const co2 = (distKm * 0.12).toFixed(1); // approx CO2 calc
+
+                totalDist += leg.distance.value;
+                totalDur += leg.duration.value;
+
+                detailsTable.innerHTML += `
+                    <tr>
+                        <td>${i + 1}</td>
+                        <td><small>${leg.end_address}</small></td>
+                        <td>${leg.duration.text}</td>
+                        <td>${distKm} km</td>
+                        <td>${durMin} min</td>
+                        <td><span class="badge bg-light text-success">${co2} kg</span></td>
+                        <td><strong class="text-primary">-</strong></td>
+                        <td><span class="badge bg-success">Optimized</span></td>
+                    </tr>`;
+            });
+        }
     </script>
 </body>
 

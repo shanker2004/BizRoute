@@ -4,14 +4,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BizRoute</title>
+  <title>BizRoute - Efficient Route Planner</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-  <!-- Leaflet Fallback -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
     body {
       background-color: #f1f5f9;
@@ -42,12 +39,9 @@
       margin-bottom: 20px;
     }
 
-    .search-input {
+    .pac-target-input {
       margin-bottom: 15px;
       border-radius: 8px;
-      border: 1px solid #cbd5e1;
-      padding: 12px;
-      font-size: 0.95rem;
     }
 
     .btn-plan {
@@ -71,25 +65,18 @@
       background: #f8fafc;
       margin-bottom: 12px;
       border-radius: 10px;
-      border: 1px solid #e2e8f0;
-      cursor: pointer;
+      border-left: 5px solid transparent;
+      box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
       transition: all 0.2s ease;
     }
 
     .route-option:hover {
       background: #f1f5f9;
-      border-color: #4f46e5;
-    }
-
-    .highlighted-route {
-      border: 2px solid #4f46e5 !important;
-      background: #eef2ff !important;
     }
 
     .route-distance {
       font-size: 1.1rem;
       font-weight: 700;
-      color: #4f46e5;
     }
 
     .route-duration {
@@ -99,26 +86,8 @@
 
     .route-emission {
       font-size: 0.95rem;
-      color: #ef4444;
       font-weight: 600;
     }
-
-    #download-pdf {
-      background-color: #0f172a;
-      color: white;
-      border: none;
-      border-radius: 8px;
-      padding: 12px 32px;
-      font-weight: 600;
-      transition: all 0.2s ease;
-    }
-
-    #download-pdf:hover {
-      background-color: #1e293b;
-      transform: translateY(-1px);
-    }
-
-
 
     @media (max-width: 768px) {
       #map {
@@ -130,52 +99,36 @@
       }
     }
   </style>
+
+  <!-- Google Maps API -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBe18wGLYbedCZOCatcP9bYzAXKRbYBGoo&libraries=places,geometry&callback=initMap" async defer></script>
 </head>
 
 <body>
   {% include 'navbar.html' %}
 
   <div class="container-fluid my-4">
-    <h1 class="text-center text-dark mb-4">Efficient Route Planner</h1>
+    <h1 class="text-center text-dark mb-4">Core Routing Feature</h1>
     <div class="row">
       <div class="col-md-3">
-        <div class="info-box">
-          <h5>Set Your Locations</h5>
-          <div class="mb-3">
-            <label class="form-label small text-muted">Search & Select Address</label>
-            <div class="input-group">
-                <input type="text" id="addressSearch" class="form-control" placeholder="e.g. T. Nagar, Chennai">
-                <button class="btn btn-outline-secondary" type="button" onclick="searchAddress()">Search</button>
-            </div>
-            <div id="search-results" class="list-group mt-1" style="display:none; position:absolute; z-index:1000; width:90%; max-height:200px; overflow-y:auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"></div>
+        <div class="info-box d-flex flex-column">
+          <h5>1. Setup Origin & Destination</h5>
+          <input id="start-input" type="text" class="form-control mb-3 pac-target-input" placeholder="Origin (e.g. Current Location)">
+          <input id="end-input" type="text" class="form-control mb-3 pac-target-input" placeholder="Destination (e.g. Warehouse A)">
+          
+          <h5 class="mt-2">2. Multi-Stop Pinning</h5>
+          <small class="text-primary mb-2 d-block"><i class="fas fa-map-pin"></i> Click on the map to add up to 5 waypoints dynamically.</small>
+          <ul id="waypoints-list" class="list-group mb-3 list-group-flush" style="font-size: 0.9em;">
+          </ul>
+
+          <div class="form-group mt-auto">
+            <button id="plan-route" class="btn btn-plan mt-3">
+              Generate Routes <i class="fas fa-route ms-1"></i>
+            </button>
+            <button id="clear-route" class="btn btn-outline-danger w-100 mt-2">
+              Clear All
+            </button>
           </div>
-          <input id="start-input" type="text" class="form-control mb-2" placeholder="Start Coords (or click map)" />
-          <input id="end-input" type="text" class="form-control mb-2" placeholder="End Coords (or click map)" />
-          <div class="form-group mt-3">
-            <label for="mode-select">Select Mode</label>
-            <select id="mode-select" class="form-control">
-              <option value="DRIVING">Car</option>
-              <option value="BICYCLING">Bike</option>
-              <option value="TRANSIT">Bus</option>
-              <option value="TRUCK">Truck</option>
-            </select>
-          </div>
-          <div class="form-group mt-3">
-            <label for="fuel-type">Select Fuel Type</label>
-            <select id="fuel-type" class="form-control">
-              <option value="PETROL">Petrol</option>
-              <option value="DIESEL">Diesel</option>
-              <option value="ELECTRIC">Electric</option>
-              <option value="CNG">CNG</option>
-            </select>
-          </div>
-          <div class="form-check mt-3">
-            <input class="form-check-input" type="checkbox" id="traffic-toggle">
-            <label class="form-check-label" for="traffic-toggle">Enable Traffic</label>
-          </div>
-          <button id="plan-route" class="btn btn-plan mt-3">
-            Plan Route
-          </button>
         </div>
       </div>
 
@@ -185,213 +138,296 @@
 
       <div class="col-md-3">
         <div class="info-box">
-          <h5>Route Options</h5>
-          <div id="route-info" class="list-group"></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="row mt-4">
-      <div class="col-md-12">
-        <div class="info-box">
           <h5>Route Summary</h5>
-          <div class="table-responsive">
-            <table class="table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Location</th>
-                  <th>Estimated Arrival</th>
-                  <th>Distance (km)</th>
-                  <th>Duration (mins)</th>
-                </tr>
-              </thead>
-              <tbody id="route-details"></tbody>
-            </table>
+          <p class="text-muted small">Compare distances, times, and emissions across 3 routing options below.</p>
+          <div id="route-info" class="d-flex flex-column gap-2">
+            <!-- Dynamically populated route panels -->
           </div>
-          <p id="weather" class="text-muted">Weather information will appear here.</p>
         </div>
-      </div>
-    </div>
-
-    <div class="row mt-4">
-      <div class="col-md-12 text-center">
-        <button id="download-pdf" class="btn btn-plan">
-          Offline - Download Route Map as PDF!
-        </button>
       </div>
     </div>
   </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.4.0/jspdf.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script>
-    // Default to Leaflet for 100% free operation
-    window.addEventListener('DOMContentLoaded', () => {
-      initLeafletFallback();
-    });
-  </script>
-  <script>
-    let leafletMap;
-    let markers = [];
-
-    function initLeafletFallback() {
-      if (leafletMap) return;
-      const mapDiv = document.getElementById("map");
-      mapDiv.innerHTML = "";
-      leafletMap = L.map(mapDiv).setView([13.0827, 80.2707], 12);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
-      }).addTo(leafletMap);
-    }
-
-    document.getElementById("plan-route").addEventListener("click", () => {
-      const start = document.getElementById("start-input").value.trim();
-      const end = document.getElementById("end-input").value.trim();
-      
-      if (start && end) {
-        calculateRoutes(start, end);
-      } else {
-        alert("Please enter both locations.");
-      }
-    });
-
-    async function calculateRoutes(start, end) {
-      try {
-        const response = await fetch('/get-routes', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ start, end })
-        });
-        const data = await response.json();
-        displayRoutes(data.routes, start, end);
-      } catch (e) {
-        console.error("Error:", e);
-      }
-    }
-
+    let map;
+    let directionsService;
     let polylines = [];
+    let waypoints = []; // Array of google.maps.LatLng
+    let waypointMarkers = [];
+    let endsMarkers = [];
 
-    async function searchAddress() {
-        const query = document.getElementById('addressSearch').value;
-        if (!query) return;
-        const resultsDiv = document.getElementById('search-results');
-        resultsDiv.innerHTML = '<div class="list-group-item">Searching...</div>';
-        resultsDiv.style.display = 'block';
+    function initMap() {
+      // Initialize map centered on Chennai
+      map = new google.maps.Map(document.getElementById("map"), {
+        center: { lat: 13.0827, lng: 80.2707 },
+        zoom: 12,
+        styles: [
+          { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] } // Clean UI
+        ],
+        streetViewControl: false,
+        mapTypeControl: false
+      });
 
-        try {
-            const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`);
-            const data = await response.json();
-            resultsDiv.innerHTML = '';
-            if (data.length === 0) {
-                resultsDiv.innerHTML = '<div class="list-group-item">No results found</div>';
-                return;
-            }
-            data.forEach(item => {
-                const btn = document.createElement('button');
-                btn.className = 'list-group-item list-group-item-action text-start small';
-                btn.innerText = item.display_name;
-                btn.onclick = () => {
-                    const lat = parseFloat(item.lat);
-                    const lon = parseFloat(item.lon);
-                    leafletMap.setView([lat, lon], 14);
-                    L.marker([lat, lon]).addTo(leafletMap).bindPopup(item.display_name).openPopup();
-                    resultsDiv.style.display = 'none';
-                    if (!document.getElementById('start-input').value) document.getElementById('start-input').value = `${lat},${lon}`;
-                    else if (!document.getElementById('end-input').value) document.getElementById('end-input').value = `${lat},${lon}`;
-                };
-                resultsDiv.appendChild(btn);
-            });
-        } catch (error) {
-            console.error('Search error:', error);
-            resultsDiv.innerHTML = '<div class="list-group-item text-danger">Search failed</div>';
+      directionsService = new google.maps.DirectionsService();
+
+      // Configure Autocomplete
+      const startInput = document.getElementById("start-input");
+      const endInput = document.getElementById("end-input");
+
+      new google.maps.places.Autocomplete(startInput);
+      new google.maps.places.Autocomplete(endInput);
+
+      // Listen for map clicks for Multi-Stop Pinning
+      map.addListener("click", (e) => {
+        if (waypoints.length >= 5) {
+          alert("Maximum of 5 waypoints allowed.");
+          return;
         }
+
+        const newPoint = e.latLng;
+        waypoints.push(newPoint);
+
+        const marker = new google.maps.Marker({
+          position: newPoint,
+          map: map,
+          label: {
+            text: String(waypoints.length),
+            color: 'white',
+            fontWeight: 'bold'
+          },
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            fillColor: "#f59e0b",
+            fillOpacity: 1,
+            strokeColor: "white",
+            strokeWeight: 2,
+            scale: 12
+          }
+        });
+
+        waypointMarkers.push(marker);
+        updateWaypointsUI();
+      });
+
+      document.getElementById("plan-route").addEventListener("click", () => {
+        const originStr = startInput.value.trim();
+        const destStr = endInput.value.trim();
+        if (!originStr || !destStr) {
+          alert("Please enter both an Origin and a Destination.");
+          return;
+        }
+        calculateAndRenderRoutes(originStr, destStr);
+      });
+
+      document.getElementById("clear-route").addEventListener("click", () => {
+        startInput.value = "";
+        endInput.value = "";
+        clearAll();
+      });
     }
 
-    async function getOSRMRoute(startCoords, endCoords) {
-        try {
-            const s = startCoords.split(',').map(c => c.trim());
-            const e = endCoords.split(',').map(c => c.trim());
-            if (s.length !== 2 || e.length !== 2) return null;
-            const url = `https://router.project-osrm.org/route/v1/driving/${s[1]},${s[0]};${e[1]},${e[0]}?overview=full&geometries=geojson`;
-            const response = await fetch(url);
-            const data = await response.json();
-            if (data.code === 'Ok' && data.routes.length > 0) {
-                return data.routes[0].geometry.coordinates.map(coord => [coord[1], coord[0]]);
-            }
-        } catch (e) { console.error("OSRM Error:", e); }
-        return null;
+    function updateWaypointsUI() {
+      const list = document.getElementById("waypoints-list");
+      list.innerHTML = "";
+      waypoints.forEach((wp, idx) => {
+        const li = document.createElement("li");
+        li.className = "list-group-item d-flex justify-content-between align-items-center py-1";
+        const latLngStr = wp.lat().toFixed(4) + ", " + wp.lng().toFixed(4);
+        li.innerHTML = `<span><i class="fas fa-stop text-warning me-2"></i> Stop ${idx + 1}: ${latLngStr}</span>`;
+        list.appendChild(li);
+      });
     }
 
-    async function displayRoutes(routes, start, end) {
-      const routeInfo = document.getElementById("route-info");
-      const routeDetails = document.getElementById("route-details");
-      const weatherInfo = document.getElementById("weather");
-      
-      routeInfo.innerHTML = "";
-      routeDetails.innerHTML = "";
-      weatherInfo.innerText = "Weather: 29°C | AQI: 45 (Good) - Optimized for Sustainability";
-      
-      markers.forEach(m => leafletMap.removeLayer(m));
-      markers = [];
-      polylines.forEach(p => leafletMap.removeLayer(p));
+    function clearAll() {
+      // Clear polylines
+      polylines.forEach(p => p.setMap(null));
       polylines = [];
-
-      for (let index = 0; index < routes.length; index++) {
-        const route = routes[index];
-        const routeElement = document.createElement("div");
-        routeElement.classList.add("route-option", "p-2", "mb-2", "border", "rounded");
-        routeElement.innerHTML = `
-          <h6>${route.summary}</h6>
-          <p class="small mb-0"><b>Dist:</b> ${route.distance} | <b>Time:</b> ${route.duration}</p>
-          <p class="small mb-0 text-success"><b>CO₂ Saved:</b> ${parseFloat(route.emissions)*0.4} kg (vs standard)</p>
-        `;
-        routeInfo.appendChild(routeElement);
-
-        routeDetails.innerHTML += `
-          <tr>
-            <td>${index + 1}</td>
-            <td>${end}</td>
-            <td>In ${route.duration}</td>
-            <td>${route.distance}</td>
-            <td>${route.duration}</td>
-          </tr>`;
-
-        let sLat, sLng, eLat, eLng;
-        try {
-            [sLat, sLng] = start.split(',').map(Number);
-            [eLat, eLng] = end.split(',').map(Number);
-        } catch(e) {
-            [sLat, sLng] = [13.0827, 80.2707];
-            [eLat, eLng] = [13.0475, 80.2089];
-        }
-        
-        const sm = L.marker([sLat, sLng]).addTo(leafletMap).bindPopup("Start");
-        const em = L.marker([eLat, eLng]).addTo(leafletMap).bindPopup("End");
-        markers.push(sm, em);
-        
-        const roadPoints = await getOSRMRoute(start, end);
-        if (roadPoints) {
-            const poly = L.polyline(roadPoints, { color: '#4f46e5', weight: 5, opacity: 0.8 }).addTo(leafletMap);
-            polylines.push(poly);
-        } else {
-            const poly = L.polyline([[sLat, sLng], [eLat, eLng]], { color: '#4f46e5', weight: 4, opacity: 0.6, dashArray: '5, 10' }).addTo(leafletMap);
-            polylines.push(poly);
-        }
-      }
-      
-      if (markers.length > 0) {
-        const group = new L.featureGroup([...markers, ...polylines]);
-        leafletMap.fitBounds(group.getBounds(), { padding: [40, 40] });
-      }
+      // Clear markers
+      waypointMarkers.forEach(m => m.setMap(null));
+      waypointMarkers = [];
+      endsMarkers.forEach(m => m.setMap(null));
+      endsMarkers = [];
+      waypoints = [];
+      updateWaypointsUI();
+      document.getElementById("route-info").innerHTML = "";
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
-      initLeafletFallback();
-      // Disable PDF for now as it used Google Static Maps
-      const downloadPdf = document.getElementById("download-pdf");
-      if (downloadPdf) downloadPdf.style.display = "none";
-    });
+    function calculateAndRenderRoutes(origin, destination) {
+      // Clear paths but keep waypoints markers so they show up under the route
+      polylines.forEach(p => p.setMap(null));
+      polylines = [];
+      endsMarkers.forEach(m => m.setMap(null));
+      endsMarkers = [];
+      document.getElementById("route-info").innerHTML = "<div class='text-center '><div class='spinner-border text-primary speed-light mt-3'></div><br><small>Analyzing pathways...</small></div>";
+
+      // Transform waypoints array to DirectionsService format
+      const routeWaypoints = waypoints.map(wp => ({
+        location: wp,
+        stopover: true
+      }));
+
+      const request = {
+        origin: origin,
+        destination: destination,
+        waypoints: routeWaypoints,
+        travelMode: google.maps.TravelMode.DRIVING,
+        provideRouteAlternatives: true, // We want 3 routes if possible!
+        drivingOptions: {
+          departureTime: new Date(Date.now()), // include traffic data
+          trafficModel: 'bestguess'
+        }
+      };
+
+      directionsService.route(request, (result, status) => {
+        if (status === "OK") {
+          document.getElementById("route-info").innerHTML = "";
+          drawRoutes(result.routes);
+        } else {
+          alert("Directions calculation failed: " + status);
+          document.getElementById("route-info").innerHTML = "";
+        }
+      });
+    }
+
+    function drawRoutes(routes) {
+      // Design configuration for up to 3 routes
+      const themeColors = [
+        { label: "Fastest", color: "#4f46e5", id: "route-fastest", icon: 'fa-bolt', strokeDash: false }, // Blue
+        { label: "Balanced", color: "#f59e0b", id: "route-balanced", icon: 'fa-scale-balanced', strokeDash: true }, // Yellow
+        { label: "Eco", color: "#54A84D", id: "route-eco", icon: 'fa-leaf', strokeDash: false }, // Green
+      ];
+
+      // Limit to 3 routes max
+      const topRoutes = routes.slice(0, 3);
+
+      // Adjust labeling if only 2 routes return
+      if (topRoutes.length === 2) {
+        themeColors[1] = themeColors[2]; // Make second one Eco
+      }
+
+      const bounds = new google.maps.LatLngBounds();
+
+      // Render origin and destination markers manually
+      if (topRoutes.length > 0) {
+        const startLoc = topRoutes[0].legs[0].start_location;
+        const endLoc = topRoutes[0].legs[topRoutes[0].legs.length - 1].end_location;
+        
+        const sm = new google.maps.Marker({
+          position: startLoc, map: map, title: "Origin",
+          zIndex: 100
+        });
+        const em = new google.maps.Marker({
+          position: endLoc, map: map, title: "Destination",
+          zIndex: 100
+        });
+        endsMarkers.push(sm, em);
+      }
+
+      topRoutes.forEach((route, index) => {
+        const theme = themeColors[index] || themeColors[0];
+        
+        let distanceMeters = 0;
+        let durationSeconds = 0;
+        
+        route.legs.forEach(leg => {
+          distanceMeters += leg.distance.value;
+          durationSeconds += (leg.duration_in_traffic ? leg.duration_in_traffic.value : leg.duration.value);
+        });
+
+        const distanceKm = (distanceMeters / 1000).toFixed(1);
+        const durationMins = Math.round(durationSeconds / 60);
+
+        // Simulated CO2 metric (kg) - Eco rule is 0.12 kg/km, others maybe a bit more
+        let co2Multiplier = 0.15;
+        if (theme.label === "Eco") co2Multiplier = 0.10;
+        if (theme.label === "Balanced") co2Multiplier = 0.13;
+        
+        const co2Kg = (distanceKm * co2Multiplier).toFixed(1);
+
+        // Create Panel Element
+        createRouteSummaryPanel(theme, distanceKm, durationMins, co2Kg);
+
+        // Gather path points and adjust map bounds
+        const path = route.overview_path;
+        path.forEach(p => bounds.extend(p));
+
+        // Create Polyline (we draw path arrays dynamically for animation)
+        const polyOptions = {
+          path: [],
+          geodesic: true,
+          strokeColor: theme.color,
+          strokeOpacity: theme.strokeDash ? 0.0 : 0.8, // If dashed, we rely on icons
+          strokeWeight: 6,
+          zIndex: topRoutes.length - index, // Fastest on top
+          map: map
+        };
+
+        // Pseudo-dashed line effect for Google Maps wrapper
+        if (theme.strokeDash) {
+          polyOptions.icons = [{
+            icon: {
+              path: 'M 0,-1 0,1',
+              strokeOpacity: 0.9,
+              strokeColor: theme.color,
+              scale: 3
+            },
+            offset: '0',
+            repeat: '20px'
+          }];
+        }
+
+        const polyline = new google.maps.Polyline(polyOptions);
+        polylines.push(polyline);
+        
+        // Exceute Smooth Path-Drawing Animation 
+        animatePath(polyline, path);
+      });
+
+      map.fitBounds(bounds);
+    }
+
+    function createRouteSummaryPanel(theme, distance, duration, co2) {
+      const infoBox = document.getElementById("route-info");
+      
+      const div = document.createElement("div");
+      div.className = "route-option";
+      div.style.borderLeftColor = theme.color;
+
+      div.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="mb-0 fw-bold" style="color: ${theme.color}"><i class="fas ${theme.icon} me-1"></i> ${theme.label} Route</h6>
+          <span class="badge bg-light text-dark shadow-sm border border-secondary border-opacity-25">${duration} mins</span>
+        </div>
+        <div class="d-flex justify-content-between text-muted align-items-end">
+          <div class="route-distance text-dark">${distance} km</div>
+          <div class="route-emission text-success fw-bold p-1 rounded" style="background: rgba(84,168,77,0.1);"><i class="fas fa-leaf me-1"></i>${co2} kg CO₂</div>
+        </div>
+      `;
+      infoBox.appendChild(div);
+    }
+
+    // Interval animation adding points to polyline sequentially over 1 second total
+    function animatePath(polyline, pathArray) {
+      const frames = parseInt(pathArray.length / 2) || 1; // roughly 2 points per frame
+      let count = 0;
+      
+      // Calculate delay so the entire animation takes roughly ~1.5s
+      const delay = Math.max(1500 / pathArray.length, 10); 
+      
+      const timer = window.setInterval(() => {
+        if (count >= pathArray.length) {
+          window.clearInterval(timer);
+          return;
+        }
+        
+        const partialPath = polyline.getPath();
+        partialPath.push(pathArray[count]);
+        if(pathArray[count+1]) {
+           partialPath.push(pathArray[count+1]);
+        }
+        count += 2;
+      }, delay);
+    }
   </script>
 </body>
 
